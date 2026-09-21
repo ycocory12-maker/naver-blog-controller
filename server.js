@@ -355,6 +355,14 @@ async function replaceLayoutMarkers(frame, page, layoutMarkers) {
         return !element.textContent.includes(value);
       }, marker).catch(() => false);
       if (selected) break;
+      const markerStillExists = await components.evaluateAll(
+        (elements, value) => elements.some((element) => element.textContent.includes(value)),
+        marker,
+      );
+      if (!markerStillExists) {
+        selected = true;
+        break;
+      }
     }
     if (!selected) throw new Error(`layout_marker_missing:${marker}`);
     // 실제 DOM과 네이버 저장 모델 양쪽에서 표식이 제거됐는지 즉시 확인한다.
