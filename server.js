@@ -3,7 +3,7 @@ const TITLE="사업자등록 전에 쓴 비용, 어디까지 비용처리할 수
 const BODY="가게 문을 열기 전인데 인테리어 계약금부터 냈고, 노트북과 집기까지 먼저 샀습니다. 사업자등록 전 지출이라도 사업과 직접 관련되고 적격한 증빙을 갖춘 비용은 세무상 반영할 수 있습니다. 다만 자산으로 봐야 하는 인테리어·시설·비품 등은 지출 즉시 전액 비용처리하는 것이 아니라 감가상각 대상이 될 수 있습니다. 부가가치세 매입세액 공제는 사업자등록 신청 시기와 세금계산서 등 증빙 요건에 따라 달라질 수 있으므로 등록 전 지출은 특히 증빙과 거래일자를 함께 확인해야 합니다. 계약서, 세금계산서·현금영수증·카드전표, 계좌이체 내역 등을 보관하고 개인적인 지출과 사업 관련 지출을 구분해 두는 것이 좋습니다. 실제 적용은 업종, 거래 내용, 사업자등록 시기 등에 따라 달라질 수 있습니다. 본 글은 2026년 9월 기준 세법을 바탕으로 작성되었습니다.";
 function ver(){return new Promise((ok,no)=>{const q=http.get({hostname:"naver-chromium.railway.internal",port:9222,path:"/json/version",headers:{Host:"localhost:9222"}},r=>{let d="";r.on("data",c=>d+=c);r.on("end",()=>{try{ok(JSON.parse(d))}catch(e){no(e)}})});q.on("error",no)})}
 (async()=>{try{
- const v=await ver(),ws="ws://naver-chromium.railway.internal:9222"+new URL(v.webSocketDebuggerUrl).pathname;
+ console.log("controller_run_started=true"); const v=await ver(),ws="ws://naver-chromium.railway.internal:9222"+new URL(v.webSocketDebuggerUrl).pathname;
  const b=await chromium.connectOverCDP(ws,{headers:{Host:"localhost:9222"},timeout:10000});
  const p=b.contexts().flatMap(x=>x.pages()).find(x=>x.url().includes("Redirect=Write"));if(!p)throw Error("page missing");
  const f=p.frames().find(x=>x.url().includes("PostWriteForm.naver"));if(!f)throw Error("editor frame missing");
