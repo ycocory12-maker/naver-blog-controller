@@ -41,6 +41,11 @@ async function ver(){for(let i=1;i<=3;i++){try{console.log("cdp_version_attempt=
  const bodyText=await rf.locator("body").innerText();
  const recoveryModal=/작성 중인 글이 있습니다|이어서 작성하시겠습니까/.test(bodyText);
  console.log("reload_recovery_modal="+recoveryModal);
+ if(recoveryModal){
+   const reloadConfirm=rf.getByRole("button",{name:"확인",exact:true});
+   const rn=await reloadConfirm.count(); console.log("reload_confirm_count="+rn);
+   if(rn===1){await reloadConfirm.click(); await p.waitForTimeout(2500); console.log("reload_confirm_clicked=true");}
+ }
  const rt=await rf.locator(".se-documentTitle").innerText().catch(()=> "");
  const rb=await rf.locator(".se-component.se-text").first().innerText().catch(()=> "");
  console.log("reload_title_present="+rt.includes(TITLE));
