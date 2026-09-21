@@ -213,9 +213,23 @@ async function toggleBoldToolbar(frame, page) {
   for (const selector of selectors) {
     const button = await visibleFirst(frame.locator(selector));
     if (!button) continue;
+    const before = await button.evaluate((element) => ({
+      className: element.className,
+      ariaPressed: element.getAttribute("aria-pressed"),
+      dataActive: element.getAttribute("data-active"),
+      title: element.getAttribute("title"),
+    }));
     await button.click();
     await page.waitForTimeout(150);
+    const after = await button.evaluate((element) => ({
+      className: element.className,
+      ariaPressed: element.getAttribute("aria-pressed"),
+      dataActive: element.getAttribute("data-active"),
+      title: element.getAttribute("title"),
+    }));
     out("bold_toolbar_selector", selector);
+    out("bold_toolbar_before", before);
+    out("bold_toolbar_after", after);
     return;
   }
   throw new Error("bold_toolbar_button_missing");
