@@ -108,6 +108,44 @@ async function handleRecoveryAfterReload(frame, page) {
   return true;
 }
 
+async function openSavedDraftFromList(frame, page, title) {
+  const countButton = frame.locator("button.save_count_btn__xxzDt").first();
+  if (await countButton.count() !== 1) throw new Error("draft_list_button_missing");
+  const countText = (await countButton.innerText().catch(() => "")).trim();
+  out("draft_count_after_save", countText);
+  await countButton.click();
+  await page.waitForTimeout(2000);
+
+  const contexts = [frame, page];
+  for (const context of contexts) {
+    const exact = context.getByText(title, { exact: true });
+    const exactCount = await exact.count().catch(() => 0);
+    out("draft_title_exact_count", exactCount);
+    for (let i = 0; i < exactCount; i += 1) {
+      const candidate = exact.nth(i);
+      if (!await candidate.isVisible().catch(() => false)) continue;
+      await candidate.click();
+      await page.waitForTimeout(3000);
+      out("draft_title_clicked", true);
+      return;
+    }
+
+    const prefix = title.slice(0, 22);
+    const partial = context.getByText(prefix, { exact: false });
+    const partialCount = await partial.count().catch(() => 0);
+    out("draft_title_partial_count", partialCount);
+    for (let i = 0; i < partialCount; i += 1) {
+      const candidate = partial.nth(i);
+      if (!await candidate.isVisible().catch(() => false)) continue;
+      await candidate.click();
+      await page.waitForTimeout(3000);
+      out("draft_title_clicked", true);
+      return;
+    }
+  }
+  throw new Error("saved_draft_title_not_found");
+}
+
 async function replaceText(page, locator, text) {
   await locator.scrollIntoViewIfNeeded();
   await locator.click();
@@ -296,7 +334,20 @@ async function runJob() {
     await page.reload({ waitUntil: "commit", timeout: 10000 }).catch((error) => out("reload_nonfatal", error.message.slice(0, 80)));
     await page.waitForTimeout(4000);
     frame = await findEditorFrame(page);
-    await handleRecoveryAfterReload(frame, page);
+    const resumedByModal = await handleRecoveryAfterReload(frame, page);
+    if (!resumedByModal) {
+      await openSavedDraftFromList(frame, page, job.title);
+      frame = await findEditorFrame(page);
+      const bodyText = await frame.locator("body").innerText().catch(() => "");
+      if (/작성 중인 글이 있습니다|이어서 작성하시겠습니까/.test(bodyText)) {
+        const confirm = frame.getByRole("button", { name: "확인", exact: true });
+        if (await confirm.count() === 1) {
+          await confirm.click();
+          await page.waitForTimeout(2500);
+          out("draft_open_confirm_clicked", true);
+        }
+      }
+    }
 
     const restoredTitle = await frame.locator(".se-documentTitle").innerText().catch(() => "");
     const restoredBody = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("\n");
