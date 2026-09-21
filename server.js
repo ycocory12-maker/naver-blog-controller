@@ -97,7 +97,7 @@ async function handleRecoveryAfterReload(frame, page) {
   const bodyText = await frame.locator("body").innerText().catch(() => "");
   const visible = /작성 중인 글이 있습니다|이어서 작성하시겠습니까/.test(bodyText);
   out("reload_recovery_modal", visible);
-  if (!visible) throw new Error("reload_recovery_modal_missing");
+  if (!visible) return false;
   const confirm = frame.getByRole("button", { name: "확인", exact: true });
   const count = await confirm.count();
   out("reload_confirm_count", count);
@@ -105,6 +105,7 @@ async function handleRecoveryAfterReload(frame, page) {
   await confirm.click();
   await page.waitForTimeout(2500);
   out("reload_confirm_clicked", true);
+  return true;
 }
 
 async function replaceText(page, locator, text) {
@@ -233,6 +234,31 @@ async function runJob() {
       return result;
     }
 
+    // 직전 실행이 저장 후 검증 단계에서만 중단된 경우, 같은 글을 다시 만들지 않는다.
+    const existingTitle = await frame.locator(".se-documentTitle").innerText().catch(() => "");
+    if (existingTitle.includes(job.title)) {
+      const existingBody = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("\n");
+      const existingImages = await frame.locator(".se-component.se-image").count();
+      const existingBodyOk = job.verify_phrases.every((phrase) => existingBody.includes(phrase));
+      const existingImagesOk = existingImages >= job.images.length;
+      out("existing_target_title", true);
+      out("existing_target_body", existingBodyOk);
+      out("existing_target_images", existingImagesOk);
+      if (existingBodyOk && existingImagesOk) {
+        result.title_entered = true;
+        result.body_entered = true;
+        result.images_uploaded = true;
+        result.draft_saved = true;
+        result.status = "DRAFT_SAVED";
+        await frame.evaluate(({ key, value }) => localStorage.setItem(key, value), { key: markerKey, value: fingerprint });
+        lastResult = result;
+        out("publish_clicked", false);
+        out("work4_result", result);
+        return result;
+      }
+      throw new Error("existing_target_incomplete");
+    }
+
     await handleRecoveryBeforeInput(frame, page);
     frame = await findEditorFrame(page);
 
@@ -319,4 +345,3 @@ if (RUN_ON_BOOT) {
 } else {
   out("run_on_boot", false);
 }
-
