@@ -282,7 +282,9 @@ async function insertStructuredText(frame, page, text) {
     if (isBulletGroup) {
       for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
         await page.keyboard.insertText(`• ${lines[lineIndex].replace(/^[-*•]\s+/, "")}`);
-        if (lineIndex < lines.length - 1) await page.keyboard.press("Enter");
+        // Enter는 네이버에서 새 텍스트 컴포넌트를 만들며 다음 입력을 잃을 수 있다.
+        // 목록 항목은 같은 컴포넌트 안의 줄바꿈으로 유지한다.
+        if (lineIndex < lines.length - 1) await page.keyboard.press("Shift+Enter");
       }
     } else {
       await page.keyboard.insertText(blocks[blockIndex]);
