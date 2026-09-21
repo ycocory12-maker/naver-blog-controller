@@ -200,13 +200,25 @@ async function clearExistingBody(frame, page) {
   if (normalizedText.length || remainingImages) throw new Error("existing_draft_clear_failed");
 }
 
-async function setBoldState(frame, enabled) {
-  const state = await frame.evaluate((desired) => {
-    const before = document.queryCommandState("bold");
-    if (before !== desired) document.execCommand("bold", false, null);
-    return { before, after: document.queryCommandState("bold") };
-  }, enabled);
-  if (state.after !== enabled) throw new Error(`bold_state_failed:${enabled}`);
+async function toggleBoldToolbar(frame, page) {
+  const selectors = [
+    "button.se-toolbar-button.se-toolbar-button-bold",
+    ".se-toolbar-item-bold button",
+    "button[data-name='bold']",
+    "button[aria-label*='굵게']",
+    "button[title*='굵게']",
+    "button:has-text('굵게')",
+  ];
+
+  for (const selector of selectors) {
+    const button = await visibleFirst(frame.locator(selector));
+    if (!button) continue;
+    await button.click();
+    await page.waitForTimeout(150);
+    out("bold_toolbar_selector", selector);
+    return;
+  }
+  throw new Error("bold_toolbar_button_missing");
 }
 
 async function insertStructuredText(frame, page, text, boldBlocks = []) {
@@ -228,7 +240,11 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
     const isBold = boldSet.has(block);
     out(`structured_block_${index + 1}_bold`, isBold);
 
-    await setBoldState(frame, isBold);
+    if (isBold) {
+      await toggleBoldToolbar(frame, page);
+      await target.focus();
+      await page.keyboard.press("Control+End");
+    }
 
     if (isBulletGroup) {
       for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
@@ -239,7 +255,11 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
       await page.keyboard.insertText(block);
     }
 
-    await setBoldState(frame, false);
+    if (isBold) {
+      await toggleBoldToolbar(frame, page);
+      await target.focus();
+      await page.keyboard.press("Control+End");
+    }
 
     // Smart Editor에서 빈 줄이 아니라 서로 구분된 문단으로 만든다.
     if (index < blocks.length - 1) {
