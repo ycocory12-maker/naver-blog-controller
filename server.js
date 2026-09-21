@@ -416,11 +416,9 @@ async function verifyBoldBlocks(frame, boldBlocks = []) {
 }
 
 async function footerImageIsLast(frame) {
-  const status = await frame.locator(".se-main-container").evaluate((container) => {
-    const components = Array.from(container.querySelectorAll(":scope > .se-component, .se-component"));
-    const unique = components.filter((element, index) => !components.some((other, otherIndex) => (
-      otherIndex !== index && other.contains(element)
-    )));
+  const status = await frame.locator("body").evaluate((container) => {
+    const components = Array.from(container.querySelectorAll(".se-component"));
+    const unique = components.filter((element) => !element.parentElement?.closest(".se-component"));
     const meaningful = unique.filter((element) => {
       if (element.matches(".se-image")) return true;
       const text = (element.textContent || "").replace(/[\s\u200B\uFEFF]/g, "");
