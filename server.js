@@ -263,54 +263,18 @@ async function setBoldToolbarState(frame, page, enabled) {
   throw new Error("bold_toolbar_button_missing");
 }
 
-async function insertStructuredText(frame, page, text, boldBlocks = []) {
-  const blocks = text.trim().split(/\n\s*\n/).map((value) => value.trim()).filter(Boolean);
-  const boldSet = new Set(boldBlocks.map((value) => value.trim()));
-
-  for (let index = 0; index < blocks.length; index += 1) {
-    const bodyBlocks = frame.locator(".se-component.se-text .se-module-text");
-    const count = await bodyBlocks.count();
-    if (!count) throw new Error("body_text_block_missing");
-    const target = bodyBlocks.nth(count - 1);
-    await target.scrollIntoViewIfNeeded();
-    await target.click();
-    await page.keyboard.press("Control+End");
-
-    const block = blocks[index];
-    const lines = block.split("\n").map((value) => value.trim()).filter(Boolean);
-    const isBulletGroup = lines.length > 0 && lines.every((line) => line.startsWith("- "));
-    const isBold = boldSet.has(block);
-    out(`structured_block_${index + 1}_bold`, isBold);
-
-    await setBoldToolbarState(frame, page, isBold);
-    await target.focus();
-    await page.keyboard.press("Control+End");
-
-    if (isBulletGroup) {
-      for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-        await page.keyboard.insertText(`• ${lines[lineIndex].slice(2)}`);
-        if (lineIndex < lines.length - 1) await page.keyboard.press("Enter");
-      }
-    } else {
-      await page.keyboard.insertText(block);
-    }
-
-    await setBoldToolbarState(frame, page, false);
-    const currentBlocks = frame.locator(".se-component.se-text .se-module-text");
-    const currentCount = await currentBlocks.count();
-    if (!currentCount) throw new Error("body_text_block_missing_after_insert");
-    const currentTail = currentBlocks.nth(currentCount - 1);
-    await currentTail.focus();
-    await page.keyboard.press("Control+End");
-
-    // Smart Editor에서 빈 줄이 아니라 서로 구분된 문단으로 만든다.
-    if (index < blocks.length - 1) {
-      await page.keyboard.press("Enter");
-      await page.keyboard.press("Enter");
-    }
-    await page.waitForTimeout(120);
-  }
-  await page.waitForTimeout(400);
+async function insertStructuredText(frame, page, text) {
+  const bodyBlocks = frame.locator(".se-component.se-text .se-module-text");
+  const count = await bodyBlocks.count();
+  if (!count) throw new Error("body_text_block_missing");
+  const target = bodyBlocks.nth(count - 1);
+  await target.scrollIntoViewIfNeeded();
+  await target.click();
+  await setBoldToolbarState(frame, page, false);
+  await target.focus();
+  await page.keyboard.press("Control+End");
+  await page.keyboard.insertText(text.trim());
+  await page.waitForTimeout(500);
 }
 
 async function applyBoldBlocks(frame, page, boldBlocks = []) {
@@ -616,7 +580,7 @@ async function runJob() {
 
     if (Array.isArray(job.tags) && job.tags.length) {
       const tagLine = job.tags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ");
-      await insertStructuredText(frame, page, tagLine, []);
+      await insertStructuredText(frame, page, `\n\n${tagLine}`);
     }
 
     const bodyText = (await frame.locator(".se-component.se-text").allInnerTexts()).join("\n");
@@ -628,6 +592,9 @@ async function runJob() {
     out("image_count_before_save", imageCount);
     if (!result.body_entered) throw new Error("body_verification_failed");
     if (!result.images_uploaded) throw new Error("image_verification_failed");
+    await applyBoldBlocks(frame, page, job.bold_blocks || []);
+    const bodyAfterFormatting = (await frame.locator(".se-component.se-text").allInnerTexts()).join("\n");
+    if (!bodyMatchesJob(bodyAfterFormatting, job)) throw new Error("body_changed_during_formatting");
     const formattingOk = await verifyBoldBlocks(frame, job.bold_blocks || []);
     if (!formattingOk) throw new Error("body_formatting_verification_failed");
 
