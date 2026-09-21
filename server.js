@@ -280,11 +280,22 @@ async function verifyBoldBlocks(frame, boldBlocks = []) {
     let bold = false;
     for (let i = 0; i < count && !bold; i += 1) {
       bold = await paragraphs.nth(i).evaluate((element, expected) => {
-        const candidates = [element, ...element.querySelectorAll("*")];
-        return candidates.some((node) => {
-          const content = (node.textContent || "").trim();
-          if (!content.includes(expected.trim())) return false;
-          const weight = window.getComputedStyle(node).fontWeight;
+        const content = (element.textContent || "").replace(/[\u200B\uFEFF]/g, "").trim();
+        if (!content.includes(expected.trim())) return false;
+
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+        const textNodes = [];
+        let current = walker.nextNode();
+        while (current) {
+          if ((current.textContent || "").replace(/[\s\u200B\uFEFF]/g, "").length) {
+            textNodes.push(current);
+          }
+          current = walker.nextNode();
+        }
+        if (!textNodes.length) return false;
+
+        return textNodes.every((node) => {
+          const weight = window.getComputedStyle(node.parentElement).fontWeight;
           return weight === "bold" || weight === "bolder" || Number(weight) >= 600;
         });
       }, text).catch(() => false);
