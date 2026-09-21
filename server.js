@@ -8,6 +8,14 @@ async function ver(){for(let i=1;i<=3;i++){try{console.log("cdp_version_attempt=
  const b=await chromium.connectOverCDP(ws,{headers:{Host:"localhost:9222"},timeout:10000});
  const p=b.contexts().flatMap(x=>x.pages()).find(x=>x.url().includes("Redirect=Write"));if(!p)throw Error("page missing");
  const f=p.frames().find(x=>x.url().includes("PostWriteForm.naver"));if(!f)throw Error("editor frame missing");
+ const modalText=await f.locator("body").innerText().catch(()=> "");
+ const recoveryModal=/작성 중인 글이 있습니다|이어서 작성하시겠습니까/.test(modalText);
+ console.log("recovery_modal_before_input="+recoveryModal);
+ if(recoveryModal){
+   const confirm=f.getByRole("button",{name:"확인",exact:true});
+   const n=await confirm.count(); console.log("recovery_confirm_count="+n);
+   if(n===1){await confirm.click(); await p.waitForTimeout(2500); console.log("recovery_confirm_clicked=true");}
+ }
  const title=f.locator(".se-documentTitle .se-title-text").first(); const body=f.locator(".se-component.se-text .se-module-text").first();
  await title.click(); await p.keyboard.press("Control+A"); await p.keyboard.insertText(TITLE); console.log("step1_title_input=true");
  await body.click(); await p.keyboard.press("Control+A"); await p.keyboard.insertText(BODY); console.log("step2_body_input=true");
