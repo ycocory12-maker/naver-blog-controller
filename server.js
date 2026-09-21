@@ -577,7 +577,6 @@ async function runJob() {
     out("image_count_before_save", imageCount);
     if (!result.body_entered) throw new Error("body_verification_failed");
     if (!result.images_uploaded) throw new Error("image_verification_failed");
-    await applyBoldBlocks(frame, page, job.bold_blocks || []);
     const formattingOk = await verifyBoldBlocks(frame, job.bold_blocks || []);
     if (!formattingOk) throw new Error("body_formatting_verification_failed");
 
