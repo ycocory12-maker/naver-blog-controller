@@ -281,14 +281,14 @@ async function insertStructuredText(frame, page, text) {
     if (isBulletGroup) {
       for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
         await page.keyboard.insertText(`• ${lines[lineIndex].replace(/^[-*•]\s+/, "")}`);
-        if (lineIndex < lines.length - 1) await page.keyboard.press("Enter");
+        if (lineIndex < lines.length - 1) await page.keyboard.press("Shift+Enter");
       }
     } else {
       await page.keyboard.insertText(blocks[blockIndex]);
     }
     if (blockIndex < blocks.length - 1) {
-      await page.keyboard.press("Enter");
-      await page.keyboard.press("Enter");
+      await page.keyboard.press("Shift+Enter");
+      await page.keyboard.press("Shift+Enter");
     }
   }
   await page.waitForTimeout(500);
