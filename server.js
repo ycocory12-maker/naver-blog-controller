@@ -350,13 +350,18 @@ async function replaceLayoutMarkers(frame, page, layoutMarkers) {
         selection.removeAllRanges();
         selection.addRange(range);
         document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
-        return selection.toString() === value;
+        if (selection.toString() !== value) return false;
+        let replaced = document.execCommand("insertLineBreak", false, null);
+        if (!replaced || element.textContent.includes(value)) {
+          selection.removeAllRanges();
+          selection.addRange(range);
+          replaced = document.execCommand("insertHTML", false, "<br>");
+        }
+        return replaced && !element.textContent.includes(value);
       }, marker).catch(() => false);
       if (selected) break;
     }
     if (!selected) throw new Error(`layout_marker_missing:${marker}`);
-    await page.keyboard.press("Backspace");
-    await page.keyboard.press("Shift+Enter");
   }
 
   const bodyText = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("\n");
