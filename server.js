@@ -189,7 +189,9 @@ async function clearExistingBody(frame, page) {
   }
   await page.waitForTimeout(1000);
   const remainingText = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("");
-  const normalizedText = remainingText.replace(/[\\s\\u200B\\uFEFF]/g, "");
+  const normalizedText = remainingText
+    .replace("글감과 함께 나의 일상을 기록해보세요!", "")
+    .replace(/[\\s\\u200B\\uFEFF]/g, "");
   const remainingImages = await frame.locator(".se-component.se-image").count();
   out("existing_body_remaining_length", normalizedText.length);
   if (normalizedText.length) out("existing_body_remaining_preview", normalizedText.slice(0, 80));
