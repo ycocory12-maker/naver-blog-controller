@@ -308,15 +308,64 @@ async function setBoldToolbarState(frame, page, enabled) {
   throw new Error("bold_toolbar_button_missing");
 }
 
-async function insertTextWithSoftBreaks(page, value) {
-  const lines = value.split("\n");
-  for (let index = 0; index < lines.length; index += 1) {
-    if (lines[index]) await page.keyboard.insertText(lines[index]);
-    if (index < lines.length - 1) await page.keyboard.press("Shift+Enter");
-  }
+function encodeLayoutMarkers(text, layoutMarkers) {
+  return text.replace(/\n/g, () => {
+    const marker = `⟦BR${String(layoutMarkers.length + 1).padStart(3, "0")}⟧`;
+    layoutMarkers.push(marker);
+    return marker;
+  });
 }
 
-async function insertStructuredText(frame, page, text, boldBlocks = []) {
+async function replaceLayoutMarkers(frame, page, layoutMarkers) {
+  // 텍스트는 먼저 한 번에 넣어 누락을 막고, 고유 표식을 뒤에서부터 실제 줄바꿈으로 바꾼다.
+  // 뒤에서 처리하면 앞쪽 DOM 위치가 바뀌어도 아직 처리하지 않은 표식의 위치가 안정적이다.
+  for (let markerIndex = layoutMarkers.length - 1; markerIndex >= 0; markerIndex -= 1) {
+    const marker = layoutMarkers[markerIndex];
+    const components = frame.locator(".se-component.se-text");
+    const count = await components.count();
+    let selected = false;
+    for (let componentIndex = 0; componentIndex < count; componentIndex += 1) {
+      const component = components.nth(componentIndex);
+      selected = await component.evaluate((element, value) => {
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+        const nodes = [];
+        let fullText = "";
+        while (walker.nextNode()) {
+          const node = walker.currentNode;
+          nodes.push({ node, start: fullText.length, end: fullText.length + node.nodeValue.length });
+          fullText += node.nodeValue;
+        }
+        const start = fullText.indexOf(value);
+        if (start < 0) return false;
+        const end = start + value.length;
+        const startNode = nodes.find((item) => item.start <= start && start < item.end);
+        const endNode = nodes.find((item) => item.start < end && end <= item.end);
+        if (!startNode || !endNode) return false;
+        const editable = startNode.node.parentElement?.closest("[contenteditable='true']");
+        if (editable instanceof HTMLElement) editable.focus();
+        const range = document.createRange();
+        range.setStart(startNode.node, start - startNode.start);
+        range.setEnd(endNode.node, end - endNode.start);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
+        return selection.toString() === value;
+      }, marker).catch(() => false);
+      if (selected) break;
+    }
+    if (!selected) throw new Error(`layout_marker_missing:${marker}`);
+    await page.keyboard.press("Backspace");
+    await page.keyboard.press("Shift+Enter");
+  }
+
+  const bodyText = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("\n");
+  const remaining = layoutMarkers.filter((marker) => bodyText.includes(marker));
+  out("layout_markers_replaced", layoutMarkers.length - remaining.length);
+  if (remaining.length) throw new Error(`layout_markers_remaining:${remaining.length}`);
+}
+
+async function insertStructuredText(frame, page, text, boldBlocks = [], layoutMarkers = []) {
   const bodyBlocks = frame.locator(".se-component.se-text .se-module-text");
   const count = await bodyBlocks.count();
   if (!count) throw new Error("body_text_block_missing");
@@ -330,35 +379,36 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
     .split("\n")
     .map((line) => line.replace(/^[-*•]\s+/, "• "))
     .join("\n");
+  const encodedText = encodeLayoutMarkers(canonicalText, layoutMarkers);
 
   const boldRanges = boldBlocks
-    .map((value) => ({ value, start: canonicalText.indexOf(value) }))
+    .map((value) => ({ value, start: encodedText.indexOf(value) }))
     .filter((range) => range.start >= 0)
     .sort((left, right) => left.start - right.start);
 
   let offset = 0;
   for (const range of boldRanges) {
     if (range.start < offset) throw new Error("overlapping_bold_blocks");
-    const plain = canonicalText.slice(offset, range.start);
+    const plain = encodedText.slice(offset, range.start);
     if (plain) {
       await setBoldToolbarState(frame, page, false);
       await target.focus();
       await page.keyboard.press("Control+End");
-      await insertTextWithSoftBreaks(page, plain);
+      await page.keyboard.insertText(plain);
     }
     await setBoldToolbarState(frame, page, true);
     await target.focus();
     await page.keyboard.press("Control+End");
-    await insertTextWithSoftBreaks(page, range.value);
+    await page.keyboard.insertText(range.value);
     offset = range.start + range.value.length;
   }
 
-  const tail = canonicalText.slice(offset);
+  const tail = encodedText.slice(offset);
   if (tail) {
     await setBoldToolbarState(frame, page, false);
     await target.focus();
     await page.keyboard.press("Control+End");
-    await insertTextWithSoftBreaks(page, tail);
+    await page.keyboard.insertText(tail);
   }
   await setBoldToolbarState(frame, page, false);
   await page.waitForTimeout(500);
@@ -675,22 +725,25 @@ async function runJob() {
     const firstBody = frame.locator(".se-component.se-text .se-module-text").first();
     await replaceText(page, firstBody, "");
 
+    const layoutMarkers = [];
     if (job.intro_part) {
-      await insertStructuredText(frame, page, job.intro_part, job.bold_blocks || []);
+      await insertStructuredText(frame, page, job.intro_part, job.bold_blocks || [], layoutMarkers);
     }
 
     for (let i = 0; i < job.images.length; i += 1) {
       await uploadImage(frame, page, path.join(ROOT, job.images[i]), i + 1);
-      await insertStructuredText(frame, page, job.body_parts[i], job.bold_blocks || []);
+      await insertStructuredText(frame, page, job.body_parts[i], job.bold_blocks || [], layoutMarkers);
     }
 
     if (Array.isArray(job.tags) && job.tags.length) {
       const tagLine = job.tags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ");
-      await insertStructuredText(frame, page, `\n\n${tagLine}`);
+      await insertStructuredText(frame, page, `\n\n${tagLine}`, [], layoutMarkers);
     }
 
     // 모든 글의 마지막에는 사무실 연락처 이미지를 고정한다.
     await uploadImage(frame, page, path.join(ROOT, job.footer_image), job.images.length + 1);
+
+    await replaceLayoutMarkers(frame, page, layoutMarkers);
 
     const bodyText = (await frame.locator(".se-component.se-text").allInnerTexts()).join("\n");
     result.body_entered = bodyMatchesJob(bodyText, job);
