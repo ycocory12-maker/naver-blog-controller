@@ -275,7 +275,7 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
 }
 
 async function applyBoldBlocks(frame, page, boldBlocks = []) {
-  for (let blockIndex = 0; blockIndex < boldBlocks.length; blockIndex += 1) {
+  for (let blockIndex = boldBlocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
     const expected = boldBlocks[blockIndex];
     const paragraphs = frame.locator(".se-component.se-text");
     const count = await paragraphs.count();
