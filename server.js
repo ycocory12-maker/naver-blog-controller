@@ -13,26 +13,29 @@ function getRaw(url) {
   });
 }
 
-async function main() {
+async function diagnose() {
   const host = "naver-chromium.railway.internal";
-  console.log("controller_boot=true");
-  try {
-    const addresses = await dns.lookup(host, { all: true });
-    console.log("chromium_dns_ok=" + (addresses.length > 0));
-
-    for (const path of ["/json/version", "/json/list", "/"]) {
+  const addresses = await dns.lookup(host, { all: true });
+  console.log("chromium_dns_ok=" + (addresses.length > 0));
+  for (const path of ["/json/version", "/json/list", "/"]) {
+    try {
       const r = await getRaw("http://" + host + ":9222" + path);
       console.log("cdp_path=" + path + " status=" + r.status);
       console.log("cdp_content_type=" + (r.headers["content-type"] || ""));
       console.log("cdp_body=" + String(r.body).replace(/[\r\n]+/g, " ").slice(0, 1000));
+    } catch (e) {
+      console.log("cdp_path=" + path + " error=" + e.message);
     }
-
-    console.log("diagnostic_complete=true");
-    setInterval(() => console.log("controller_heartbeat=true"), 60000);
-  } catch (err) {
-    console.error("controller_error=" + err.message);
-    setInterval(() => console.log("controller_heartbeat_after_error=true"), 60000);
   }
 }
 
+async function main() {
+  console.log("controller_boot=true");
+  await diagnose().catch(e => console.log("diagnostic_error=" + e.message));
+  console.log("controller_ready=true");
+  setInterval(async () => {
+    console.log("controller_heartbeat=true");
+    await diagnose().catch(e => console.log("diagnostic_error=" + e.message));
+  }, 60000);
+}
 main();
