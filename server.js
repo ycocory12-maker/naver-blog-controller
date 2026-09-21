@@ -183,11 +183,13 @@ async function clearExistingBody(frame, page) {
     await page.keyboard.press("Backspace");
   }
   await page.waitForTimeout(1000);
-  const remainingText = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("").trim();
+  const remainingText = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("");
+  const normalizedText = remainingText.replace(/[\\s\\u200B\\uFEFF]/g, "");
   const remainingImages = await frame.locator(".se-component.se-image").count();
-  out("existing_body_cleared", remainingText.length === 0);
+  out("existing_body_remaining_length", normalizedText.length);
+  out("existing_body_cleared", normalizedText.length === 0);
   out("existing_images_cleared", remainingImages === 0);
-  if (remainingText.length || remainingImages) throw new Error("existing_draft_clear_failed");
+  if (normalizedText.length || remainingImages) throw new Error("existing_draft_clear_failed");
 }
 
 async function insertTextAtLastBlock(frame, page, text) {
