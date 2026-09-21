@@ -281,47 +281,52 @@ async function applyBoldBlocks(frame, page, boldBlocks = []) {
     const count = await paragraphs.count();
     let target = null;
     for (let i = 0; i < count; i += 1) {
-      const candidate = paragraphs.nth(i);
-      const exact = await candidate.evaluate((element, value) => {
-        const normalize = (text) => (text || "").replace(/[\s\u200B\uFEFF]/g, "");
-        return normalize(element.textContent) === normalize(value);
-      }, expected).catch(() => false);
-      if (exact) {
-        target = candidate;
+      if (await paragraphs.nth(i).isVisible().catch(() => false)) {
+        target = paragraphs.nth(i);
         break;
       }
     }
     if (!target) throw new Error(`bold_target_missing:${blockIndex + 1}`);
 
-    const alreadyBold = await target.evaluate((element, value) => {
-      const normalize = (text) => (text || "").replace(/[\s\u200B\uFEFF]/g, "");
+    const selected = await target.evaluate((element, value) => {
       const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-      const boldParts = [];
+      const chars = [];
+      let compact = "";
       let node = walker.nextNode();
       while (node) {
-        const weight = window.getComputedStyle(node.parentElement).fontWeight;
-        if (weight === "bold" || weight === "bolder" || Number(weight) >= 600) {
-          boldParts.push(node.textContent || "");
+        const content = node.textContent || "";
+        for (let offset = 0; offset < content.length; offset += 1) {
+          const char = content[offset];
+          if (!/[\s\u200B\uFEFF]/.test(char)) {
+            compact += char;
+            chars.push({ node, offset });
+          }
         }
         node = walker.nextNode();
       }
-      return normalize(boldParts.join("")).includes(normalize(value));
+
+      const wanted = value.replace(/[\s\u200B\uFEFF]/g, "");
+      const start = compact.indexOf(wanted);
+      if (start < 0 || !wanted.length) return false;
+      const first = chars[start];
+      const last = chars[start + wanted.length - 1];
+      if (!first || !last) return false;
+
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.setStart(first.node, first.offset);
+      range.setEnd(last.node, last.offset + 1);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
+      return selection.toString().replace(/[\s\u200B\uFEFF]/g, "") === wanted;
     }, expected).catch(() => false);
 
-    if (!alreadyBold) {
-      await target.evaluate((element) => {
-        const selection = window.getSelection();
-        const range = document.createRange();
-        range.selectNodeContents(element);
-        selection.removeAllRanges();
-        selection.addRange(range);
-        document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
-      });
-      await page.waitForTimeout(200);
-      await setBoldToolbarState(frame, page, true);
-      await page.waitForTimeout(200);
-    }
-    out(`bold_block_${blockIndex + 1}_postprocessed`, !alreadyBold);
+    if (!selected) throw new Error(`bold_range_selection_failed:${blockIndex + 1}`);
+    await page.waitForTimeout(200);
+    await setBoldToolbarState(frame, page, true);
+    await page.waitForTimeout(200);
+    out(`bold_block_${blockIndex + 1}_postprocessed`, true);
   }
 
   const bodyBlocks = frame.locator(".se-component.se-text .se-module-text");
