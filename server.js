@@ -25,11 +25,17 @@ function ver(){return new Promise((ok,no)=>{const q=http.get({hostname:"naver-ch
  const countBtn=f.locator("button.save_count_btn__xxzDt").first();
  const countText=(await countBtn.innerText()).trim();
  console.log("draft_count_after_save="+countText);
- await p.reload({waitUntil:"domcontentloaded",timeout:20000}); await p.waitForTimeout(2500);
+ console.log("pre_reload_verified=true");
+ await p.reload({waitUntil:"commit",timeout:10000}).catch(e=>console.log("reload_nonfatal="+e.message.slice(0,80)));
+ await p.waitForTimeout(4000);
  const rf=p.frames().find(x=>x.url().includes("PostWriteForm.naver")); if(!rf) throw Error("editor frame missing after reload");
  const bodyText=await rf.locator("body").innerText();
  const recoveryModal=/작성 중인 글이 있습니다|이어서 작성하시겠습니까/.test(bodyText);
  console.log("reload_recovery_modal="+recoveryModal);
+ const rt=await rf.locator(".se-documentTitle").innerText().catch(()=> "");
+ const rb=await rf.locator(".se-component.se-text").first().innerText().catch(()=> "");
+ console.log("reload_title_present="+rt.includes(TITLE));
+ console.log("reload_body_present="+(rb.includes(BODY.slice(0,80))&&rb.includes("2026년 9월 기준 세법")));
  console.log("publish_clicked=false");
  setInterval(()=>{},60000);
 }catch(e){console.error("controller_error="+e.message);setInterval(()=>{},60000)}})();
