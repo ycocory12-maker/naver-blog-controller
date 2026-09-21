@@ -200,15 +200,69 @@ async function clearExistingBody(frame, page) {
   if (normalizedText.length || remainingImages) throw new Error("existing_draft_clear_failed");
 }
 
-async function insertTextAtLastBlock(frame, page, text) {
-  const blocks = frame.locator(".se-component.se-text .se-module-text");
-  const count = await blocks.count();
-  if (!count) throw new Error("body_text_block_missing");
-  const target = blocks.nth(count - 1);
-  await target.scrollIntoViewIfNeeded();
-  await target.click();
-  await page.keyboard.insertText(text);
+async function insertStructuredText(frame, page, text, boldBlocks = []) {
+  const blocks = text.trim().split(/\n\s*\n/).map((value) => value.trim()).filter(Boolean);
+  const boldSet = new Set(boldBlocks.map((value) => value.trim()));
+
+  for (let index = 0; index < blocks.length; index += 1) {
+    const bodyBlocks = frame.locator(".se-component.se-text .se-module-text");
+    const count = await bodyBlocks.count();
+    if (!count) throw new Error("body_text_block_missing");
+    const target = bodyBlocks.nth(count - 1);
+    await target.scrollIntoViewIfNeeded();
+    await target.click();
+
+    const block = blocks[index];
+    const lines = block.split("\n").map((value) => value.trim()).filter(Boolean);
+    const isBulletGroup = lines.length > 0 && lines.every((line) => line.startsWith("- "));
+    const isBold = boldSet.has(block);
+
+    if (isBold) await page.keyboard.press("Control+B");
+
+    if (isBulletGroup) {
+      for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+        await page.keyboard.insertText(`• ${lines[lineIndex].slice(2)}`);
+        if (lineIndex < lines.length - 1) await page.keyboard.press("Enter");
+      }
+    } else {
+      await page.keyboard.insertText(block);
+    }
+
+    if (isBold) await page.keyboard.press("Control+B");
+
+    // Smart Editor에서 빈 줄이 아니라 서로 구분된 문단으로 만든다.
+    if (index < blocks.length - 1) {
+      await page.keyboard.press("Enter");
+      await page.keyboard.press("Enter");
+    }
+    await page.waitForTimeout(120);
+  }
   await page.waitForTimeout(400);
+}
+
+async function verifyBoldBlocks(frame, boldBlocks = []) {
+  let verified = 0;
+  for (const text of boldBlocks) {
+    const paragraphs = frame.locator(".se-text-paragraph").filter({ hasText: text });
+    const count = await paragraphs.count();
+    let bold = false;
+    for (let i = 0; i < count && !bold; i += 1) {
+      bold = await paragraphs.nth(i).evaluate((element, expected) => {
+        const candidates = [element, ...element.querySelectorAll("*")];
+        return candidates.some((node) => {
+          const content = (node.textContent || "").trim();
+          if (!content.includes(expected.trim())) return false;
+          const weight = window.getComputedStyle(node).fontWeight;
+          return weight === "bold" || weight === "bolder" || Number(weight) >= 600;
+        });
+      }, text).catch(() => false);
+    }
+    out(`bold_block_${verified + 1}_verified`, bold);
+    if (bold) verified += 1;
+  }
+  out("bold_blocks_verified", verified);
+  out("bold_blocks_expected", boldBlocks.length);
+  return verified === boldBlocks.length;
 }
 
 async function visibleFirst(locator) {
@@ -312,6 +366,7 @@ async function runJob() {
       title: job.title,
       body_parts: job.body_parts,
       images: job.images,
+      bold_blocks: job.bold_blocks || [],
     })).digest("hex");
     const markerKey = `work4_completed_${job.content_id}`;
     const priorMarker = await frame.evaluate((key) => localStorage.getItem(key), markerKey).catch(() => null);
@@ -383,7 +438,7 @@ async function runJob() {
 
     for (let i = 0; i < job.images.length; i += 1) {
       await uploadImage(frame, page, path.join(ROOT, job.images[i]), i + 1);
-      await insertTextAtLastBlock(frame, page, job.body_parts[i]);
+      await insertStructuredText(frame, page, job.body_parts[i], job.bold_blocks || []);
     }
 
     const bodyText = (await frame.locator(".se-component.se-text").allInnerTexts()).join("\n");
@@ -395,6 +450,8 @@ async function runJob() {
     out("image_count_before_save", imageCount);
     if (!result.body_entered) throw new Error("body_verification_failed");
     if (!result.images_uploaded) throw new Error("image_verification_failed");
+    const formattingOk = await verifyBoldBlocks(frame, job.bold_blocks || []);
+    if (!formattingOk) throw new Error("body_formatting_verification_failed");
 
     const save = frame.locator("button.save_btn__FuUyN").first();
     if (await save.count() !== 1) throw new Error("draft_save_button_missing");
@@ -426,12 +483,13 @@ async function runJob() {
     const titleOk = restoredTitle.includes(job.title);
     const bodyOk = job.verify_phrases.every((phrase) => restoredBody.includes(phrase));
     const imagesOk = restoredImages >= job.images.length;
+    const formattingOk = await verifyBoldBlocks(frame, job.bold_blocks || []);
     out("reload_title_present", titleOk);
     out("reload_body_present", bodyOk);
     out("reload_image_count", restoredImages);
     out("reload_images_present", imagesOk);
     out("publish_clicked", false);
-    if (!titleOk || !bodyOk || !imagesOk) throw new Error("reload_verification_failed");
+    if (!titleOk || !bodyOk || !imagesOk || !formattingOk) throw new Error("reload_verification_failed");
 
     await frame.evaluate(({ key, value }) => localStorage.setItem(key, value), { key: markerKey, value: fingerprint });
     result.status = "DRAFT_SAVED";
