@@ -274,6 +274,66 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
   await page.waitForTimeout(400);
 }
 
+async function applyBoldBlocks(frame, page, boldBlocks = []) {
+  for (let blockIndex = 0; blockIndex < boldBlocks.length; blockIndex += 1) {
+    const expected = boldBlocks[blockIndex];
+    const paragraphs = frame.locator(".se-text-paragraph").filter({ hasText: expected });
+    const count = await paragraphs.count();
+    let target = null;
+    for (let i = 0; i < count; i += 1) {
+      const candidate = paragraphs.nth(i);
+      const exact = await candidate.evaluate((element, value) => {
+        const normalize = (text) => (text || "").replace(/[\s\u200B\uFEFF]/g, "");
+        return normalize(element.textContent) === normalize(value);
+      }, expected).catch(() => false);
+      if (exact) {
+        target = candidate;
+        break;
+      }
+    }
+    if (!target) throw new Error(`bold_target_missing:${blockIndex + 1}`);
+
+    const alreadyBold = await target.evaluate((element, value) => {
+      const normalize = (text) => (text || "").replace(/[\s\u200B\uFEFF]/g, "");
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      const boldParts = [];
+      let node = walker.nextNode();
+      while (node) {
+        const weight = window.getComputedStyle(node.parentElement).fontWeight;
+        if (weight === "bold" || weight === "bolder" || Number(weight) >= 600) {
+          boldParts.push(node.textContent || "");
+        }
+        node = walker.nextNode();
+      }
+      return normalize(boldParts.join("")).includes(normalize(value));
+    }, expected).catch(() => false);
+
+    if (!alreadyBold) {
+      await target.evaluate((element) => {
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
+      });
+      await page.waitForTimeout(200);
+      await setBoldToolbarState(frame, page, true);
+      await page.waitForTimeout(200);
+    }
+    out(`bold_block_${blockIndex + 1}_postprocessed`, !alreadyBold);
+  }
+
+  const bodyBlocks = frame.locator(".se-component.se-text .se-module-text");
+  const count = await bodyBlocks.count();
+  if (count) {
+    const last = bodyBlocks.nth(count - 1);
+    await last.focus();
+    await page.keyboard.press("Control+End");
+    await setBoldToolbarState(frame, page, false);
+  }
+}
+
 async function verifyBoldBlocks(frame, boldBlocks = []) {
   let verified = 0;
   for (let blockIndex = 0; blockIndex < boldBlocks.length; blockIndex += 1) {
@@ -501,6 +561,7 @@ async function runJob() {
     out("image_count_before_save", imageCount);
     if (!result.body_entered) throw new Error("body_verification_failed");
     if (!result.images_uploaded) throw new Error("image_verification_failed");
+    await applyBoldBlocks(frame, page, job.bold_blocks || []);
     const formattingOk = await verifyBoldBlocks(frame, job.bold_blocks || []);
     if (!formattingOk) throw new Error("body_formatting_verification_failed");
 
