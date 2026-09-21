@@ -483,13 +483,13 @@ async function runJob() {
     const titleOk = restoredTitle.includes(job.title);
     const bodyOk = job.verify_phrases.every((phrase) => restoredBody.includes(phrase));
     const imagesOk = restoredImages >= job.images.length;
-    const formattingOk = await verifyBoldBlocks(frame, job.bold_blocks || []);
+    const restoredFormattingOk = await verifyBoldBlocks(frame, job.bold_blocks || []);
     out("reload_title_present", titleOk);
     out("reload_body_present", bodyOk);
     out("reload_image_count", restoredImages);
     out("reload_images_present", imagesOk);
     out("publish_clicked", false);
-    if (!titleOk || !bodyOk || !imagesOk || !formattingOk) throw new Error("reload_verification_failed");
+    if (!titleOk || !bodyOk || !imagesOk || !restoredFormattingOk) throw new Error("reload_verification_failed");
 
     await frame.evaluate(({ key, value }) => localStorage.setItem(key, value), { key: markerKey, value: fingerprint });
     result.status = "DRAFT_SAVED";
