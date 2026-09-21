@@ -324,6 +324,7 @@ async function replaceLayoutMarkers(frame, page, layoutMarkers) {
     const components = frame.locator(".se-component.se-text");
     const count = await components.count();
     let selected = false;
+    let selectedComponentIndex = -1;
     for (let componentIndex = 0; componentIndex < count; componentIndex += 1) {
       const component = components.nth(componentIndex);
       selected = await component.evaluate((element, value) => {
@@ -353,11 +354,16 @@ async function replaceLayoutMarkers(frame, page, layoutMarkers) {
         // 실제 키 입력 직전까지 브라우저의 선택 상태만 유지한다.
         return selection.toString() === value;
       }, marker).catch(() => false);
-      if (selected) break;
+      if (selected) {
+        selectedComponentIndex = componentIndex;
+        break;
+      }
     }
     if (!selected) throw new Error(`layout_marker_missing:${marker}`);
     // 선택된 표식을 신뢰 가능한 실제 키 입력으로 교체해야 네이버 내부 저장 모델도 갱신된다.
-    await page.keyboard.press("Shift+Enter");
+    const editable = components.nth(selectedComponentIndex).locator("[contenteditable='true']").first();
+    if (await editable.count() !== 1) throw new Error(`layout_editable_missing:${marker}`);
+    await editable.press("Shift+Enter");
     const markerRemains = await frame.locator(".se-component.se-text").evaluateAll(
       (elements, value) => elements.some((element) => element.textContent.includes(value)),
       marker,
