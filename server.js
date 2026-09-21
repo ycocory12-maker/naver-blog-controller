@@ -173,20 +173,26 @@ async function clearExistingBody(frame, page) {
   }
 
   const modules = frame.locator(".se-component.se-text .se-module-text");
-  const count = await modules.count();
-  for (let i = 0; i < count; i += 1) {
-    const module = modules.nth(i);
-    if (!await module.isVisible().catch(() => false)) continue;
-    await module.scrollIntoViewIfNeeded();
-    await module.click();
-    await page.keyboard.press("Control+A");
-    await page.keyboard.press("Backspace");
+  for (let pass = 0; pass < 3; pass += 1) {
+    const count = await modules.count();
+    for (let i = count - 1; i >= 0; i -= 1) {
+      const module = modules.nth(i);
+      if (!await module.isVisible().catch(() => false)) continue;
+      const value = (await module.innerText().catch(() => "")).replace(/[\\s\\u200B\\uFEFF]/g, "");
+      if (!value.length) continue;
+      await module.scrollIntoViewIfNeeded();
+      await module.click();
+      await page.keyboard.press("Control+A");
+      await page.keyboard.press("Backspace");
+      await page.waitForTimeout(150);
+    }
   }
   await page.waitForTimeout(1000);
   const remainingText = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("");
   const normalizedText = remainingText.replace(/[\\s\\u200B\\uFEFF]/g, "");
   const remainingImages = await frame.locator(".se-component.se-image").count();
   out("existing_body_remaining_length", normalizedText.length);
+  if (normalizedText.length) out("existing_body_remaining_preview", normalizedText.slice(0, 80));
   out("existing_body_cleared", normalizedText.length === 0);
   out("existing_images_cleared", remainingImages === 0);
   if (normalizedText.length || remainingImages) throw new Error("existing_draft_clear_failed");
