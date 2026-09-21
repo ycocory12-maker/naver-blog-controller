@@ -154,6 +154,42 @@ async function replaceText(page, locator, text) {
   await page.keyboard.insertText(text);
 }
 
+async function clearExistingBody(frame, page) {
+  const images = frame.locator(".se-component.se-image");
+  let safety = 0;
+  while (await images.count()) {
+    if (safety++ > 12) throw new Error("existing_images_clear_loop");
+    const before = await images.count();
+    const target = images.nth(before - 1);
+    await target.scrollIntoViewIfNeeded();
+    await target.click({ position: { x: 10, y: 10 } });
+    await page.keyboard.press("Backspace");
+    await page.waitForTimeout(500);
+    if (await images.count() >= before) {
+      await page.keyboard.press("Delete");
+      await page.waitForTimeout(500);
+    }
+    if (await images.count() >= before) throw new Error("existing_image_delete_failed");
+  }
+
+  const modules = frame.locator(".se-component.se-text .se-module-text");
+  const count = await modules.count();
+  for (let i = 0; i < count; i += 1) {
+    const module = modules.nth(i);
+    if (!await module.isVisible().catch(() => false)) continue;
+    await module.scrollIntoViewIfNeeded();
+    await module.click();
+    await page.keyboard.press("Control+A");
+    await page.keyboard.press("Backspace");
+  }
+  await page.waitForTimeout(1000);
+  const remainingText = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("").trim();
+  const remainingImages = await frame.locator(".se-component.se-image").count();
+  out("existing_body_cleared", remainingText.length === 0);
+  out("existing_images_cleared", remainingImages === 0);
+  if (remainingText.length || remainingImages) throw new Error("existing_draft_clear_failed");
+}
+
 async function insertTextAtLastBlock(frame, page, text) {
   const blocks = frame.locator(".se-component.se-text .se-module-text");
   const count = await blocks.count();
@@ -261,10 +297,15 @@ async function runJob() {
     let frame = await findEditorFrame(page);
     result.editor_opened = true;
 
-    const fingerprint = crypto.createHash("sha256").update(`${job.content_id}:${job.title}`).digest("hex");
+    const fingerprint = crypto.createHash("sha256").update(JSON.stringify({
+      content_id: job.content_id,
+      title: job.title,
+      body_parts: job.body_parts,
+      images: job.images,
+    })).digest("hex");
     const markerKey = `work4_completed_${job.content_id}`;
     const priorMarker = await frame.evaluate((key) => localStorage.getItem(key), markerKey).catch(() => null);
-    if (priorMarker === fingerprint) {
+    if (!job.replace_existing_draft && priorMarker === fingerprint) {
       result.status = "ALREADY_DRAFT_SAVED";
       result.error = "duplicate_job_skipped";
       out("work4_result", result);
@@ -272,33 +313,53 @@ async function runJob() {
       return result;
     }
 
-    // 직전 실행이 저장 후 검증 단계에서만 중단된 경우, 같은 글을 다시 만들지 않는다.
-    const existingTitle = await frame.locator(".se-documentTitle").innerText().catch(() => "");
-    if (existingTitle.includes(job.title)) {
-      const existingBody = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("\n");
-      const existingImages = await frame.locator(".se-component.se-image").count();
-      const existingBodyOk = job.verify_phrases.every((phrase) => existingBody.includes(phrase));
-      const existingImagesOk = existingImages >= job.images.length;
-      out("existing_target_title", true);
-      out("existing_target_body", existingBodyOk);
-      out("existing_target_images", existingImagesOk);
-      if (existingBodyOk && existingImagesOk) {
-        result.title_entered = true;
-        result.body_entered = true;
-        result.images_uploaded = true;
-        result.draft_saved = true;
-        result.status = "DRAFT_SAVED";
-        await frame.evaluate(({ key, value }) => localStorage.setItem(key, value), { key: markerKey, value: fingerprint });
-        lastResult = result;
-        out("publish_clicked", false);
-        out("work4_result", result);
-        return result;
+    if (job.replace_existing_draft) {
+      await handleRecoveryBeforeInput(frame, page);
+      frame = await findEditorFrame(page);
+      let currentTitle = await frame.locator(".se-documentTitle").innerText().catch(() => "");
+      if (!currentTitle.includes(job.title)) {
+        await openSavedDraftFromList(frame, page, job.title);
+        frame = await findEditorFrame(page);
+        const bodyText = await frame.locator("body").innerText().catch(() => "");
+        if (/작성 중인 글이 있습니다|이어서 작성하시겠습니까/.test(bodyText)) {
+          const confirm = frame.getByRole("button", { name: "확인", exact: true });
+          if (await confirm.count() === 1) {
+            await confirm.click();
+            await page.waitForTimeout(2500);
+          }
+        }
+        currentTitle = await frame.locator(".se-documentTitle").innerText().catch(() => "");
       }
-      throw new Error("existing_target_incomplete");
+      if (!currentTitle.includes(job.title)) throw new Error("existing_draft_not_opened");
+      await clearExistingBody(frame, page);
+      out("existing_draft_replace_mode", true);
+    } else {
+      const existingTitle = await frame.locator(".se-documentTitle").innerText().catch(() => "");
+      if (existingTitle.includes(job.title)) {
+        const existingBody = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("\n");
+        const existingImages = await frame.locator(".se-component.se-image").count();
+        const existingBodyOk = job.verify_phrases.every((phrase) => existingBody.includes(phrase));
+        const existingImagesOk = existingImages >= job.images.length;
+        out("existing_target_title", true);
+        out("existing_target_body", existingBodyOk);
+        out("existing_target_images", existingImagesOk);
+        if (existingBodyOk && existingImagesOk) {
+          result.title_entered = true;
+          result.body_entered = true;
+          result.images_uploaded = true;
+          result.draft_saved = true;
+          result.status = "DRAFT_SAVED";
+          await frame.evaluate(({ key, value }) => localStorage.setItem(key, value), { key: markerKey, value: fingerprint });
+          lastResult = result;
+          out("publish_clicked", false);
+          out("work4_result", result);
+          return result;
+        }
+        throw new Error("existing_target_incomplete");
+      }
+      await handleRecoveryBeforeInput(frame, page);
+      frame = await findEditorFrame(page);
     }
-
-    await handleRecoveryBeforeInput(frame, page);
-    frame = await findEditorFrame(page);
 
     const title = frame.locator(".se-documentTitle .se-title-text").first();
     await replaceText(page, title, job.title);
