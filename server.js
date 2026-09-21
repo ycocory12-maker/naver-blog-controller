@@ -379,52 +379,31 @@ async function replaceLayoutMarkers(frame, page, layoutMarkers) {
   if (remaining.length) throw new Error(`layout_markers_remaining:${remaining.length}`);
 }
 
-async function insertStructuredText(frame, page, text, boldBlocks = [], layoutMarkers = []) {
+async function pasteText(page, target, value) {
+  const origin = new URL(page.url()).origin;
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin });
+  await page.evaluate(async (text) => navigator.clipboard.writeText(text), value);
+  await target.focus();
+  await page.keyboard.press("Control+End");
+  await page.keyboard.press("Control+V");
+}
+
+async function insertStructuredText(frame, page, text) {
   const bodyBlocks = frame.locator(".se-component.se-text .se-module-text");
   const count = await bodyBlocks.count();
   if (!count) throw new Error("body_text_block_missing");
   const target = bodyBlocks.nth(count - 1);
   await target.scrollIntoViewIfNeeded();
   await target.click();
-  // 이미지 사이의 원문을 한 번의 입력 이벤트로 넣어 네이버가 연속 Enter 중
-  // 일부 문단을 다른 컴포넌트로 옮기거나 누락하는 현상을 막는다.
+  // 네이버의 실제 붙여넣기 처리기로 원문 전체와 줄바꿈을 함께 전달한다.
+  // 편집기가 자체 모델에 문단 구조를 생성하므로 재접속 후에도 형식이 유지된다.
   const canonicalText = text
     .trim()
     .split("\n")
     .map((line) => line.replace(/^[-*•]\s+/, "• "))
     .join("\n");
-  const encodedText = encodeLayoutMarkers(canonicalText, layoutMarkers);
-
-  const boldRanges = boldBlocks
-    .map((value) => ({ value, start: encodedText.indexOf(value) }))
-    .filter((range) => range.start >= 0)
-    .sort((left, right) => left.start - right.start);
-
-  let offset = 0;
-  for (const range of boldRanges) {
-    if (range.start < offset) throw new Error("overlapping_bold_blocks");
-    const plain = encodedText.slice(offset, range.start);
-    if (plain) {
-      await setBoldToolbarState(frame, page, false);
-      await target.focus();
-      await page.keyboard.press("Control+End");
-      await page.keyboard.insertText(plain);
-    }
-    await setBoldToolbarState(frame, page, true);
-    await target.focus();
-    await page.keyboard.press("Control+End");
-    await page.keyboard.insertText(range.value);
-    offset = range.start + range.value.length;
-  }
-
-  const tail = encodedText.slice(offset);
-  if (tail) {
-    await setBoldToolbarState(frame, page, false);
-    await target.focus();
-    await page.keyboard.press("Control+End");
-    await page.keyboard.insertText(tail);
-  }
   await setBoldToolbarState(frame, page, false);
+  await pasteText(page, target, canonicalText);
   await page.waitForTimeout(500);
 }
 
@@ -739,25 +718,24 @@ async function runJob() {
     const firstBody = frame.locator(".se-component.se-text .se-module-text").first();
     await replaceText(page, firstBody, "");
 
-    const layoutMarkers = [];
     if (job.intro_part) {
-      await insertStructuredText(frame, page, job.intro_part, job.bold_blocks || [], layoutMarkers);
+      await insertStructuredText(frame, page, job.intro_part);
     }
 
     for (let i = 0; i < job.images.length; i += 1) {
       await uploadImage(frame, page, path.join(ROOT, job.images[i]), i + 1);
-      await insertStructuredText(frame, page, job.body_parts[i], job.bold_blocks || [], layoutMarkers);
+      await insertStructuredText(frame, page, job.body_parts[i]);
     }
 
     if (Array.isArray(job.tags) && job.tags.length) {
       const tagLine = job.tags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ");
-      await insertStructuredText(frame, page, `\n\n${tagLine}`, [], layoutMarkers);
+      await insertStructuredText(frame, page, `\n\n${tagLine}`);
     }
+
+    await applyBoldBlocks(frame, page, job.bold_blocks || []);
 
     // 모든 글의 마지막에는 사무실 연락처 이미지를 고정한다.
     await uploadImage(frame, page, path.join(ROOT, job.footer_image), job.images.length + 1);
-
-    await replaceLayoutMarkers(frame, page, layoutMarkers);
 
     const bodyText = (await frame.locator(".se-component.se-text").allInnerTexts()).join("\n");
     result.body_entered = bodyMatchesJob(bodyText, job);
