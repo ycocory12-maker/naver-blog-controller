@@ -182,6 +182,50 @@ function bodyMatchesJob(actual, job) {
   return phrasesOk && exactOrderOk;
 }
 
+function normalizeLayout(value) {
+  return (value || "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u200B\uFEFF]/g, "")
+    .replace(/(^|\n)\s*[-*•]\s+/g, "$1• ")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+async function layoutMatchesJob(frame, job) {
+  const actualSections = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => []))
+    .map((value) => normalizeLayout(value.replace("글감과 함께 나의 일상을 기록해보세요!", "")))
+    .filter(Boolean);
+  const expectedSections = [job.intro_part || "", ...(job.body_parts || [])]
+    .filter(Boolean)
+    .map(normalizeLayout);
+
+  let actualIndex = 0;
+  for (let expectedIndex = 0; expectedIndex < expectedSections.length; expectedIndex += 1) {
+    const expected = expectedSections[expectedIndex];
+    let found = false;
+    while (actualIndex < actualSections.length) {
+      if (actualSections[actualIndex] === expected) {
+        found = true;
+        actualIndex += 1;
+        break;
+      }
+      actualIndex += 1;
+    }
+    if (!found) {
+      out("layout_missing_section", expectedIndex + 1);
+      out("layout_expected_preview", expected.slice(0, 240));
+      out("layout_actual_sections", actualSections.map((value) => value.slice(0, 120)));
+      out("body_layout_match", false);
+      return false;
+    }
+  }
+  out("body_layout_match", true);
+  return true;
+}
+
 async function replaceText(page, locator, text) {
   await locator.scrollIntoViewIfNeeded();
   await locator.click();
@@ -264,6 +308,14 @@ async function setBoldToolbarState(frame, page, enabled) {
   throw new Error("bold_toolbar_button_missing");
 }
 
+async function insertTextWithSoftBreaks(page, value) {
+  const lines = value.split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index]) await page.keyboard.insertText(lines[index]);
+    if (index < lines.length - 1) await page.keyboard.press("Shift+Enter");
+  }
+}
+
 async function insertStructuredText(frame, page, text, boldBlocks = []) {
   const bodyBlocks = frame.locator(".se-component.se-text .se-module-text");
   const count = await bodyBlocks.count();
@@ -292,12 +344,12 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
       await setBoldToolbarState(frame, page, false);
       await target.focus();
       await page.keyboard.press("Control+End");
-      await page.keyboard.insertText(plain);
+      await insertTextWithSoftBreaks(page, plain);
     }
     await setBoldToolbarState(frame, page, true);
     await target.focus();
     await page.keyboard.press("Control+End");
-    await page.keyboard.insertText(range.value);
+    await insertTextWithSoftBreaks(page, range.value);
     offset = range.start + range.value.length;
   }
 
@@ -306,7 +358,7 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
     await setBoldToolbarState(frame, page, false);
     await target.focus();
     await page.keyboard.press("Control+End");
-    await page.keyboard.insertText(tail);
+    await insertTextWithSoftBreaks(page, tail);
   }
   await setBoldToolbarState(frame, page, false);
   await page.waitForTimeout(500);
@@ -645,14 +697,17 @@ async function runJob() {
     const imageCount = await frame.locator(".se-component.se-image").count();
     result.images_uploaded = imageCount >= job.images.length + 1;
     const footerLastOk = await footerImageIsLast(frame);
+    const layoutOk = await layoutMatchesJob(frame, job);
     out("body_entered", result.body_entered);
     out("images_uploaded", result.images_uploaded);
     out("image_count_before_save", imageCount);
     if (!result.body_entered) throw new Error("body_verification_failed");
     if (!result.images_uploaded) throw new Error("image_verification_failed");
     if (!footerLastOk) throw new Error("footer_image_position_failed");
+    if (!layoutOk) throw new Error("body_layout_verification_failed");
     const bodyAfterFormatting = (await frame.locator(".se-component.se-text").allInnerTexts()).join("\n");
     if (!bodyMatchesJob(bodyAfterFormatting, job)) throw new Error("body_changed_during_formatting");
+    if (!await layoutMatchesJob(frame, job)) throw new Error("body_layout_changed_during_formatting");
     const formattingOk = await verifyBoldBlocks(frame, job.bold_blocks || []);
     if (!formattingOk) throw new Error("body_formatting_verification_failed");
 
@@ -687,13 +742,14 @@ async function runJob() {
     const bodyOk = bodyMatchesJob(restoredBody, job);
     const imagesOk = restoredImages >= job.images.length + 1;
     const restoredFooterLastOk = await footerImageIsLast(frame);
+    const restoredLayoutOk = await layoutMatchesJob(frame, job);
     const restoredFormattingOk = await verifyBoldBlocks(frame, job.bold_blocks || []);
     out("reload_title_present", titleOk);
     out("reload_body_present", bodyOk);
     out("reload_image_count", restoredImages);
     out("reload_images_present", imagesOk);
     out("publish_clicked", false);
-    if (!titleOk || !bodyOk || !imagesOk || !restoredFooterLastOk || !restoredFormattingOk) throw new Error("reload_verification_failed");
+    if (!titleOk || !bodyOk || !imagesOk || !restoredFooterLastOk || !restoredLayoutOk || !restoredFormattingOk) throw new Error("reload_verification_failed");
 
     await frame.evaluate(({ key, value }) => localStorage.setItem(key, value), { key: markerKey, value: fingerprint });
     result.status = "DRAFT_SAVED";
