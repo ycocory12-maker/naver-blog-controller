@@ -296,7 +296,11 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
     }
 
     await setBoldToolbarState(frame, page, false);
-    await target.focus();
+    const currentBlocks = frame.locator(".se-component.se-text .se-module-text");
+    const currentCount = await currentBlocks.count();
+    if (!currentCount) throw new Error("body_text_block_missing_after_insert");
+    const currentTail = currentBlocks.nth(currentCount - 1);
+    await currentTail.focus();
     await page.keyboard.press("Control+End");
 
     // Smart Editor에서 빈 줄이 아니라 서로 구분된 문단으로 만든다.
