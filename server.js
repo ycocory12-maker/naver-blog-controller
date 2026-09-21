@@ -277,12 +277,18 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
 async function applyBoldBlocks(frame, page, boldBlocks = []) {
   for (let blockIndex = 0; blockIndex < boldBlocks.length; blockIndex += 1) {
     const expected = boldBlocks[blockIndex];
-    const paragraphs = frame.locator(".se-module-text").filter({ hasText: expected });
+    const paragraphs = frame.locator(".se-module-text");
     const count = await paragraphs.count();
     let target = null;
     for (let i = 0; i < count; i += 1) {
-      if (await paragraphs.nth(i).isVisible().catch(() => false)) {
-        target = paragraphs.nth(i);
+      const candidate = paragraphs.nth(i);
+      if (!await candidate.isVisible().catch(() => false)) continue;
+      const contains = await candidate.evaluate((element, value) => {
+        const normalize = (text) => (text || "").replace(/[\s\u200B\uFEFF]/g, "");
+        return normalize(element.textContent).includes(normalize(value));
+      }, expected).catch(() => false);
+      if (contains) {
+        target = candidate;
         break;
       }
     }
@@ -343,10 +349,15 @@ async function verifyBoldBlocks(frame, boldBlocks = []) {
   let verified = 0;
   for (let blockIndex = 0; blockIndex < boldBlocks.length; blockIndex += 1) {
     const text = boldBlocks[blockIndex];
-    const paragraphs = frame.locator(".se-module-text").filter({ hasText: text });
+    const paragraphs = frame.locator(".se-module-text");
     const count = await paragraphs.count();
     let bold = false;
     for (let i = 0; i < count && !bold; i += 1) {
+      const contains = await paragraphs.nth(i).evaluate((element, expected) => {
+        const normalize = (value) => (value || "").replace(/[\s\u200B\uFEFF]/g, "");
+        return normalize(element.textContent).includes(normalize(expected));
+      }, text).catch(() => false);
+      if (!contains) continue;
       bold = await paragraphs.nth(i).evaluate((element, expected) => {
         const content = (element.textContent || "").replace(/[\u200B\uFEFF]/g, "").trim();
         if (!content.includes(expected.trim())) return false;
