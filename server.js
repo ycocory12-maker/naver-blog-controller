@@ -277,7 +277,7 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
 async function applyBoldBlocks(frame, page, boldBlocks = []) {
   for (let blockIndex = 0; blockIndex < boldBlocks.length; blockIndex += 1) {
     const expected = boldBlocks[blockIndex];
-    const paragraphs = frame.locator(".se-text-paragraph").filter({ hasText: expected });
+    const paragraphs = frame.locator(".se-module-text").filter({ hasText: expected });
     const count = await paragraphs.count();
     let target = null;
     for (let i = 0; i < count; i += 1) {
@@ -343,7 +343,7 @@ async function verifyBoldBlocks(frame, boldBlocks = []) {
   let verified = 0;
   for (let blockIndex = 0; blockIndex < boldBlocks.length; blockIndex += 1) {
     const text = boldBlocks[blockIndex];
-    const paragraphs = frame.locator(".se-text-paragraph").filter({ hasText: text });
+    const paragraphs = frame.locator(".se-module-text").filter({ hasText: text });
     const count = await paragraphs.count();
     let bold = false;
     for (let i = 0; i < count && !bold; i += 1) {
