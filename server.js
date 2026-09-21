@@ -361,7 +361,7 @@ async function replaceLayoutMarkers(frame, page, layoutMarkers) {
     }
     if (!selected) throw new Error(`layout_marker_missing:${marker}`);
     // 선택된 표식을 신뢰 가능한 실제 키 입력으로 교체해야 네이버 내부 저장 모델도 갱신된다.
-    const editable = components.nth(selectedComponentIndex).locator("[contenteditable='true']").first();
+    const editable = components.nth(selectedComponentIndex).locator(".se-module-text").first();
     if (await editable.count() !== 1) throw new Error(`layout_editable_missing:${marker}`);
     await editable.press("Shift+Enter");
     const markerRemains = await frame.locator(".se-component.se-text").evaluateAll(
