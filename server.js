@@ -15,5 +15,16 @@ function ver(){return new Promise((ok,no)=>{const q=http.get({hostname:"naver-ch
  const x=(await f.locator(".se-component.se-text").first().innerText()).trim();
  console.log("step3_title_verified="+(t.includes(TITLE))); console.log("step4_body_verified="+(x.includes(BODY.slice(0,80))&&x.includes("2026년 9월 기준 세법")));
  console.log("title_length="+t.length);console.log("body_length="+x.length);
- console.log("input_verification_complete=true");setInterval(()=>{},60000);
+ console.log("input_verification_complete=true");
+ const save=f.locator("button.save_btn__FuUyN").first();
+ if(await save.count()!==1) throw Error("draft save button missing");
+ console.log("draft_save_button_found=true");
+ await save.click();
+ console.log("draft_save_clicked=true");
+ await p.waitForTimeout(2500);
+ const afterText=await f.locator("body").innerText();
+ const saveConfirmed=/저장되었습니다|임시저장|저장 완료/.test(afterText);
+ console.log("draft_save_ui_confirmed="+saveConfirmed);
+ console.log("publish_clicked=false");
+ setInterval(()=>{},60000);
 }catch(e){console.error("controller_error="+e.message);setInterval(()=>{},60000)}})();
