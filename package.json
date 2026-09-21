@@ -1,1 +1,11 @@
-{"name":"naver-blog-controller","version":"1.0.0","private":true,"scripts":{"start":"node server.js"}}
+{
+  "name": "naver-blog-controller",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "playwright-core": "^1.55.0"
+  }
+}
