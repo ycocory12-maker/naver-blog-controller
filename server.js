@@ -1,55 +1,322 @@
-const http=require("http");const{chromium}=require("playwright-core");
-const TITLE="사업자등록 전에 쓴 비용, 어디까지 비용처리할 수 있을까?";
-const BODY="가게 문을 열기 전인데 인테리어 계약금부터 냈고, 노트북과 집기까지 먼저 샀습니다. 사업자등록 전 지출이라도 사업과 직접 관련되고 적격한 증빙을 갖춘 비용은 세무상 반영할 수 있습니다. 다만 자산으로 봐야 하는 인테리어·시설·비품 등은 지출 즉시 전액 비용처리하는 것이 아니라 감가상각 대상이 될 수 있습니다. 부가가치세 매입세액 공제는 사업자등록 신청 시기와 세금계산서 등 증빙 요건에 따라 달라질 수 있으므로 등록 전 지출은 특히 증빙과 거래일자를 함께 확인해야 합니다. 계약서, 세금계산서·현금영수증·카드전표, 계좌이체 내역 등을 보관하고 개인적인 지출과 사업 관련 지출을 구분해 두는 것이 좋습니다. 실제 적용은 업종, 거래 내용, 사업자등록 시기 등에 따라 달라질 수 있습니다. 본 글은 2026년 9월 기준 세법을 바탕으로 작성되었습니다.";
-function verOnce(){return new Promise((ok,no)=>{const q=http.get({hostname:"naver-chromium.railway.internal",port:9222,path:"/json/version",headers:{Host:"localhost:9222"}},r=>{let d="";r.on("data",c=>d+=c);r.on("end",()=>{try{ok(JSON.parse(d))}catch(e){no(e)}})});q.setTimeout(4000,()=>q.destroy(new Error("version_timeout")));q.on("error",no)})}
-async function ver(){for(let i=1;i<=3;i++){try{console.log("cdp_version_attempt="+i);const v=await verOnce();console.log("cdp_version_ok=true");return v}catch(e){console.log("cdp_version_error="+e.message);if(i<3)await new Promise(r=>setTimeout(r,1500))}}throw Error("cdp_version_failed")}
-(async()=>{try{
- console.log("controller_run_started=true"); const v=await ver(),ws="ws://naver-chromium.railway.internal:9222"+new URL(v.webSocketDebuggerUrl).pathname;
- const b=await chromium.connectOverCDP(ws,{headers:{Host:"localhost:9222"},timeout:10000});
- const p=b.contexts().flatMap(x=>x.pages()).find(x=>x.url().includes("Redirect=Write"));if(!p)throw Error("page missing");
- const f=p.frames().find(x=>x.url().includes("PostWriteForm.naver"));if(!f)throw Error("editor frame missing");
- const modalText=await f.locator("body").innerText().catch(()=> "");
- const recoveryBeforeInput=/작성 중인 글이 있습니다|이어서 작성하시겠습니까/.test(modalText);
- console.log("recovery_modal_before_input="+recoveryBeforeInput);
- if(recoveryBeforeInput){
-   const confirm=f.getByRole("button",{name:"확인",exact:true});
-   const n=await confirm.count(); console.log("recovery_confirm_count="+n);
-   if(n===1){await confirm.click(); await p.waitForTimeout(2500); console.log("recovery_confirm_clicked=true");}
- }
- const title=f.locator(".se-documentTitle .se-title-text").first(); const body=f.locator(".se-component.se-text .se-module-text").first();
- await title.click(); await p.keyboard.press("Control+A"); await p.keyboard.insertText(TITLE); console.log("step1_title_input=true");
- await body.click(); await p.keyboard.press("Control+A"); await p.keyboard.insertText(BODY); console.log("step2_body_input=true");
- await p.waitForTimeout(700);
- const t=(await f.locator(".se-documentTitle").innerText()).trim();
- const x=(await f.locator(".se-component.se-text").first().innerText()).trim();
- console.log("step3_title_verified="+(t.includes(TITLE))); console.log("step4_body_verified="+(x.includes(BODY.slice(0,80))&&x.includes("2026년 9월 기준 세법")));
- console.log("title_length="+t.length);console.log("body_length="+x.length);
- console.log("input_verification_complete=true");
- const save=f.locator("button.save_btn__FuUyN").first();
- if(await save.count()!==1) throw Error("draft save button missing");
- console.log("draft_save_button_found=true");
- await save.click();
- console.log("draft_save_clicked=true");
- await p.waitForTimeout(2500);
- const countBtn=f.locator("button.save_count_btn__xxzDt").first();
- const countText=(await countBtn.innerText()).trim();
- console.log("draft_count_after_save="+countText);
- console.log("pre_reload_verified=true");
- await p.reload({waitUntil:"commit",timeout:10000}).catch(e=>console.log("reload_nonfatal="+e.message.slice(0,80)));
- await p.waitForTimeout(4000);
- const rf=p.frames().find(x=>x.url().includes("PostWriteForm.naver")); if(!rf) throw Error("editor frame missing after reload");
- const bodyText=await rf.locator("body").innerText();
- const recoveryModal=/작성 중인 글이 있습니다|이어서 작성하시겠습니까/.test(bodyText);
- console.log("reload_recovery_modal="+recoveryModal);
- if(recoveryModal){
-   const reloadConfirm=rf.getByRole("button",{name:"확인",exact:true});
-   const rn=await reloadConfirm.count(); console.log("reload_confirm_count="+rn);
-   if(rn===1){await reloadConfirm.click(); await p.waitForTimeout(2500); console.log("reload_confirm_clicked=true");}
- }
- const rt=await rf.locator(".se-documentTitle").innerText().catch(()=> "");
- const rb=await rf.locator(".se-component.se-text").first().innerText().catch(()=> "");
- console.log("reload_title_present="+rt.includes(TITLE));
- console.log("reload_body_present="+(rb.includes(BODY.slice(0,80))&&rb.includes("2026년 9월 기준 세법")));
- console.log("publish_clicked=false");
- setInterval(()=>{},60000);
-}catch(e){console.error("controller_error="+e.message);setInterval(()=>{},60000)}})();
+const http = require("http");
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
+const { chromium } = require("playwright-core");
+
+const PORT = Number(process.env.PORT || 3000);
+const RUN_ON_BOOT = process.env.RUN_ON_BOOT === "true";
+const JOB_FILE = process.env.JOB_FILE || "jobs/001.json";
+const ROOT = __dirname;
+
+let lastResult = { status: "IDLE", published: false };
+
+function out(key, value) {
+  console.log(`${key}=${typeof value === "string" ? value : JSON.stringify(value)}`);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function loadJob() {
+  const job = JSON.parse(fs.readFileSync(path.join(ROOT, JOB_FILE), "utf8"));
+  if (!job.content_id || !job.title || !Array.isArray(job.body_parts) || !Array.isArray(job.images)) {
+    throw new Error("invalid_job_payload");
+  }
+  if (job.publish_mode !== "draft_only") throw new Error("publish_mode_must_be_draft_only");
+  if (job.images.length !== job.body_parts.length) throw new Error("image_body_mapping_mismatch");
+  for (const image of job.images) {
+    const full = path.join(ROOT, image);
+    if (!fs.existsSync(full)) throw new Error(`image_missing:${image}`);
+  }
+  return job;
+}
+
+function getVersionOnce() {
+  return new Promise((resolve, reject) => {
+    const req = http.get({
+      hostname: "naver-chromium.railway.internal",
+      port: 9222,
+      path: "/json/version",
+      headers: { Host: "localhost:9222" },
+    }, (res) => {
+      let data = "";
+      res.on("data", (chunk) => { data += chunk; });
+      res.on("end", () => {
+        try { resolve(JSON.parse(data)); } catch (error) { reject(error); }
+      });
+    });
+    req.setTimeout(4000, () => req.destroy(new Error("version_timeout")));
+    req.on("error", reject);
+  });
+}
+
+async function getVersion() {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      out("cdp_version_attempt", attempt);
+      const value = await getVersionOnce();
+      out("cdp_version_ok", true);
+      return value;
+    } catch (error) {
+      out("cdp_version_error", error.message);
+      if (attempt < 3) await sleep(1500);
+    }
+  }
+  throw new Error("cdp_version_failed");
+}
+
+async function findEditorFrame(page, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const frame = page.frames().find((candidate) => candidate.url().includes("PostWriteForm.naver"));
+    if (frame && await frame.locator(".se-documentTitle").count().catch(() => 0)) return frame;
+    await page.waitForTimeout(500);
+  }
+  throw new Error("editor_frame_missing");
+}
+
+async function handleRecoveryBeforeInput(frame, page) {
+  const bodyText = await frame.locator("body").innerText().catch(() => "");
+  const visible = /작성 중인 글이 있습니다|이어서 작성하시겠습니까/.test(bodyText);
+  out("recovery_modal_before_input", visible);
+  if (!visible) return;
+
+  // 다른 임시저장을 덮어쓰지 않도록 새 글 시작 쪽(취소)만 허용한다.
+  const cancel = frame.getByRole("button", { name: "취소", exact: true });
+  const count = await cancel.count();
+  out("recovery_cancel_count", count);
+  if (count !== 1) throw new Error("recovery_conflict_no_unique_cancel");
+  await cancel.click();
+  await page.waitForTimeout(2000);
+  out("recovery_cancel_clicked", true);
+}
+
+async function handleRecoveryAfterReload(frame, page) {
+  const bodyText = await frame.locator("body").innerText().catch(() => "");
+  const visible = /작성 중인 글이 있습니다|이어서 작성하시겠습니까/.test(bodyText);
+  out("reload_recovery_modal", visible);
+  if (!visible) throw new Error("reload_recovery_modal_missing");
+  const confirm = frame.getByRole("button", { name: "확인", exact: true });
+  const count = await confirm.count();
+  out("reload_confirm_count", count);
+  if (count !== 1) throw new Error("reload_confirm_not_unique");
+  await confirm.click();
+  await page.waitForTimeout(2500);
+  out("reload_confirm_clicked", true);
+}
+
+async function replaceText(page, locator, text) {
+  await locator.scrollIntoViewIfNeeded();
+  await locator.click();
+  await page.keyboard.press("Control+A");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.insertText(text);
+}
+
+async function insertTextAtLastBlock(frame, page, text) {
+  const blocks = frame.locator(".se-component.se-text .se-module-text");
+  const count = await blocks.count();
+  if (!count) throw new Error("body_text_block_missing");
+  const target = blocks.nth(count - 1);
+  await target.scrollIntoViewIfNeeded();
+  await target.click();
+  await page.keyboard.insertText(text);
+  await page.waitForTimeout(400);
+}
+
+async function visibleFirst(locator) {
+  const count = await locator.count();
+  for (let i = 0; i < count; i += 1) {
+    if (await locator.nth(i).isVisible().catch(() => false)) return locator.nth(i);
+  }
+  return null;
+}
+
+async function uploadImage(frame, page, absolutePath, index) {
+  const before = await frame.locator(".se-component.se-image").count();
+  const bodyBlocks = frame.locator(".se-component.se-text .se-module-text");
+  const last = bodyBlocks.nth(Math.max(0, (await bodyBlocks.count()) - 1));
+  await last.click();
+
+  const buttonSelectors = [
+    "button.se-image-toolbar-button",
+    ".se-toolbar-item-image button",
+    "button[aria-label*='사진']",
+    "button[title*='사진']",
+    "button:has-text('사진')",
+  ];
+
+  let uploaded = false;
+  for (const selector of buttonSelectors) {
+    const button = await visibleFirst(frame.locator(selector));
+    if (!button) continue;
+    try {
+      const chooserPromise = page.waitForEvent("filechooser", { timeout: 5000 });
+      await button.click();
+      const chooser = await chooserPromise;
+      await chooser.setFiles(absolutePath);
+      uploaded = true;
+      break;
+    } catch (error) {
+      out(`image_${index}_button_attempt`, `${selector}:${error.message.slice(0, 80)}`);
+    }
+  }
+
+  if (!uploaded) {
+    const fileInputs = frame.locator("input[type='file'][accept*='image']");
+    const count = await fileInputs.count();
+    if (!count) throw new Error(`image_${index}_uploader_missing`);
+    await fileInputs.nth(count - 1).setInputFiles(absolutePath);
+  }
+
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) {
+    const current = await frame.locator(".se-component.se-image").count();
+    if (current > before) {
+      out(`image_${index}_uploaded`, true);
+      return;
+    }
+    await page.waitForTimeout(500);
+  }
+  throw new Error(`image_${index}_verification_failed`);
+}
+
+async function runJob() {
+  const job = loadJob();
+  const result = {
+    status: "UNKNOWN_ERROR",
+    content_id: job.content_id,
+    title: job.title,
+    logged_in: false,
+    editor_opened: false,
+    title_entered: false,
+    body_entered: false,
+    images_uploaded: false,
+    draft_saved: false,
+    published: false,
+    current_url: "",
+    error: "",
+  };
+  lastResult = result;
+
+  const version = await getVersion();
+  const wsUrl = `ws://naver-chromium.railway.internal:9222${new URL(version.webSocketDebuggerUrl).pathname}`;
+  const browser = await chromium.connectOverCDP(wsUrl, {
+    headers: { Host: "localhost:9222" },
+    timeout: 10000,
+  });
+
+  try {
+    const pages = browser.contexts().flatMap((context) => context.pages());
+    const page = pages.find((candidate) => candidate.url().includes("Redirect=Write")) || pages[0];
+    if (!page) throw new Error("write_page_missing");
+    result.current_url = page.url();
+    if (page.url().includes("nid.naver.com")) {
+      result.status = "LOGIN_REQUIRED";
+      throw new Error("login_required");
+    }
+    result.logged_in = true;
+
+    let frame = await findEditorFrame(page);
+    result.editor_opened = true;
+
+    const fingerprint = crypto.createHash("sha256").update(`${job.content_id}:${job.title}`).digest("hex");
+    const markerKey = `work4_completed_${job.content_id}`;
+    const priorMarker = await frame.evaluate((key) => localStorage.getItem(key), markerKey).catch(() => null);
+    if (priorMarker === fingerprint) {
+      result.status = "ALREADY_DRAFT_SAVED";
+      result.error = "duplicate_job_skipped";
+      out("work4_result", result);
+      lastResult = result;
+      return result;
+    }
+
+    await handleRecoveryBeforeInput(frame, page);
+    frame = await findEditorFrame(page);
+
+    const title = frame.locator(".se-documentTitle .se-title-text").first();
+    await replaceText(page, title, job.title);
+    const enteredTitle = (await frame.locator(".se-documentTitle").innerText()).trim();
+    result.title_entered = enteredTitle.includes(job.title);
+    if (!result.title_entered) throw new Error("title_verification_failed");
+    out("title_entered", true);
+
+    const firstBody = frame.locator(".se-component.se-text .se-module-text").first();
+    await replaceText(page, firstBody, "");
+
+    for (let i = 0; i < job.images.length; i += 1) {
+      await uploadImage(frame, page, path.join(ROOT, job.images[i]), i + 1);
+      await insertTextAtLastBlock(frame, page, job.body_parts[i]);
+    }
+
+    const bodyText = (await frame.locator(".se-component.se-text").allInnerTexts()).join("\n");
+    result.body_entered = job.verify_phrases.every((phrase) => bodyText.includes(phrase));
+    const imageCount = await frame.locator(".se-component.se-image").count();
+    result.images_uploaded = imageCount >= job.images.length;
+    out("body_entered", result.body_entered);
+    out("images_uploaded", result.images_uploaded);
+    out("image_count_before_save", imageCount);
+    if (!result.body_entered) throw new Error("body_verification_failed");
+    if (!result.images_uploaded) throw new Error("image_verification_failed");
+
+    const save = frame.locator("button.save_btn__FuUyN").first();
+    if (await save.count() !== 1) throw new Error("draft_save_button_missing");
+    await save.click();
+    await page.waitForTimeout(3000);
+    out("draft_save_clicked", true);
+
+    await page.reload({ waitUntil: "commit", timeout: 10000 }).catch((error) => out("reload_nonfatal", error.message.slice(0, 80)));
+    await page.waitForTimeout(4000);
+    frame = await findEditorFrame(page);
+    await handleRecoveryAfterReload(frame, page);
+
+    const restoredTitle = await frame.locator(".se-documentTitle").innerText().catch(() => "");
+    const restoredBody = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("\n");
+    const restoredImages = await frame.locator(".se-component.se-image").count();
+    const titleOk = restoredTitle.includes(job.title);
+    const bodyOk = job.verify_phrases.every((phrase) => restoredBody.includes(phrase));
+    const imagesOk = restoredImages >= job.images.length;
+    out("reload_title_present", titleOk);
+    out("reload_body_present", bodyOk);
+    out("reload_image_count", restoredImages);
+    out("reload_images_present", imagesOk);
+    out("publish_clicked", false);
+    if (!titleOk || !bodyOk || !imagesOk) throw new Error("reload_verification_failed");
+
+    await frame.evaluate(({ key, value }) => localStorage.setItem(key, value), { key: markerKey, value: fingerprint });
+    result.status = "DRAFT_SAVED";
+    result.draft_saved = true;
+    result.current_url = page.url();
+    lastResult = result;
+    out("work4_result", result);
+    return result;
+  } catch (error) {
+    if (result.status === "UNKNOWN_ERROR" && /image_/i.test(error.message)) result.status = "IMAGE_FAILED";
+    else if (result.status === "UNKNOWN_ERROR" && /title|body|editor|write_page|recovery/i.test(error.message)) result.status = "UPLOAD_FAILED";
+    result.error = error.message;
+    lastResult = result;
+    out("work4_result", result);
+    throw error;
+  }
+}
+
+const server = http.createServer((req, res) => {
+  res.setHeader("content-type", "application/json; charset=utf-8");
+  if (req.url === "/health") {
+    res.end(JSON.stringify({ ok: true, lastResult }));
+    return;
+  }
+  res.statusCode = 404;
+  res.end(JSON.stringify({ error: "not_found" }));
+});
+
+server.listen(PORT, () => out("controller_listening", PORT));
+
+if (RUN_ON_BOOT) {
+  runJob().catch((error) => out("controller_error", error.message));
+} else {
+  out("run_on_boot", false);
+}
+
