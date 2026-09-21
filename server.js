@@ -388,7 +388,46 @@ async function pasteText(page, target, value) {
   await page.keyboard.press("Control+V");
 }
 
-async function insertStructuredText(frame, page, text) {
+function richClipboardHtml(text, boldBlocks = []) {
+  const normalize = (value) => (value || "").replace(/[\s\u200B\uFEFF]/g, "");
+  const boldSet = new Set(boldBlocks.map(normalize));
+  const escapeHtml = (value) => value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  return text
+    .trim()
+    .split("\n")
+    .map((line) => line.replace(/^[-*•]\s+/, "• "))
+    .map((line) => {
+      if (!line.length) return "<div><br></div>";
+      const escaped = escapeHtml(line);
+      const content = boldSet.has(normalize(line)) ? `<strong>${escaped}</strong>` : escaped;
+      return `<div>${content}</div>`;
+    })
+    .join("");
+}
+
+async function pasteRichText(page, target, plainText, htmlText) {
+  const origin = new URL(page.url()).origin;
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin });
+  const written = await page.evaluate(async ({ plain, html }) => {
+    if (typeof ClipboardItem !== "function") return false;
+    const item = new ClipboardItem({
+      "text/plain": new Blob([plain], { type: "text/plain" }),
+      "text/html": new Blob([html], { type: "text/html" }),
+    });
+    await navigator.clipboard.write([item]);
+    return true;
+  }, { plain: plainText, html: htmlText }).catch(() => false);
+  if (!written) throw new Error("rich_clipboard_write_failed");
+  await target.focus();
+  await page.keyboard.press("Control+End");
+  await page.keyboard.press("Control+V");
+}
+
+async function insertStructuredText(frame, page, text, boldBlocks = []) {
   const bodyBlocks = frame.locator(".se-component.se-text .se-module-text");
   const count = await bodyBlocks.count();
   if (!count) throw new Error("body_text_block_missing");
@@ -403,7 +442,8 @@ async function insertStructuredText(frame, page, text) {
     .map((line) => line.replace(/^[-*•]\s+/, "• "))
     .join("\n");
   await setBoldToolbarState(frame, page, false);
-  await pasteText(page, target, canonicalText);
+  const htmlText = richClipboardHtml(text, boldBlocks);
+  await pasteRichText(page, target, canonicalText, htmlText);
   await page.waitForTimeout(500);
 }
 
@@ -722,20 +762,18 @@ async function runJob() {
     await replaceText(page, firstBody, "");
 
     if (job.intro_part) {
-      await insertStructuredText(frame, page, job.intro_part);
+      await insertStructuredText(frame, page, job.intro_part, job.bold_blocks || []);
     }
 
     for (let i = 0; i < job.images.length; i += 1) {
       await uploadImage(frame, page, path.join(ROOT, job.images[i]), i + 1);
-      await insertStructuredText(frame, page, job.body_parts[i]);
+      await insertStructuredText(frame, page, job.body_parts[i], job.bold_blocks || []);
     }
 
     if (Array.isArray(job.tags) && job.tags.length) {
       const tagLine = job.tags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ");
-      await insertStructuredText(frame, page, `\n\n${tagLine}`);
+      await insertStructuredText(frame, page, `\n\n${tagLine}`, job.bold_blocks || []);
     }
-
-    await applyBoldBlocks(frame, page, job.bold_blocks || []);
 
     // 모든 글의 마지막에는 사무실 연락처 이미지를 고정한다.
     await uploadImage(frame, page, path.join(ROOT, job.footer_image), job.images.length + 1);
