@@ -22,9 +22,14 @@ function ver(){return new Promise((ok,no)=>{const q=http.get({hostname:"naver-ch
  await save.click();
  console.log("draft_save_clicked=true");
  await p.waitForTimeout(2500);
- const afterText=await f.locator("body").innerText();
- const saveConfirmed=/저장되었습니다|임시저장|저장 완료/.test(afterText);
- console.log("draft_save_ui_confirmed="+saveConfirmed);
+ const countBtn=f.locator("button.save_count_btn__xxzDt").first();
+ const countText=(await countBtn.innerText()).trim();
+ console.log("draft_count_after_save="+countText);
+ await p.reload({waitUntil:"domcontentloaded",timeout:20000}); await p.waitForTimeout(2500);
+ const rf=p.frames().find(x=>x.url().includes("PostWriteForm.naver")); if(!rf) throw Error("editor frame missing after reload");
+ const bodyText=await rf.locator("body").innerText();
+ const recoveryModal=/작성 중인 글이 있습니다|이어서 작성하시겠습니까/.test(bodyText);
+ console.log("reload_recovery_modal="+recoveryModal);
  console.log("publish_clicked=false");
  setInterval(()=>{},60000);
 }catch(e){console.error("controller_error="+e.message);setInterval(()=>{},60000)}})();
