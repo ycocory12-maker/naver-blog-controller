@@ -26,7 +26,8 @@ function loadJob() {
   }
   if (job.publish_mode !== "draft_only") throw new Error("publish_mode_must_be_draft_only");
   if (job.images.length !== job.body_parts.length) throw new Error("image_body_mapping_mismatch");
-  for (const image of job.images) {
+  if (!job.footer_image) throw new Error("footer_image_required");
+  for (const image of [...job.images, job.footer_image]) {
     const full = path.join(ROOT, image);
     if (!fs.existsSync(full)) throw new Error(`image_missing:${image}`);
   }
@@ -213,7 +214,7 @@ async function clearExistingBody(frame, page) {
     for (let i = count - 1; i >= 0; i -= 1) {
       const module = modules.nth(i);
       if (!await module.isVisible().catch(() => false)) continue;
-      const value = (await module.innerText().catch(() => "")).replace(/[\\s\\u200B\\uFEFF]/g, "");
+      const value = (await module.innerText().catch(() => "")).replace(/[\s\u200B\uFEFF]/g, "");
       if (!value.length) continue;
       await module.scrollIntoViewIfNeeded();
       await module.click();
@@ -226,7 +227,7 @@ async function clearExistingBody(frame, page) {
   const remainingText = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("");
   const normalizedText = remainingText
     .replace("글감과 함께 나의 일상을 기록해보세요!", "")
-    .replace(/[\\s\\u200B\\uFEFF]/g, "");
+    .replace(/[\s\u200B\uFEFF]/g, "");
   const remainingImages = await frame.locator(".se-component.se-image").count();
   out("existing_body_remaining_length", normalizedText.length);
   if (normalizedText.length) out("existing_body_remaining_preview", normalizedText.slice(0, 80));
@@ -412,6 +413,28 @@ async function verifyBoldBlocks(frame, boldBlocks = []) {
   return verified === boldBlocks.length;
 }
 
+async function footerImageIsLast(frame) {
+  const status = await frame.locator(".se-main-container").evaluate((container) => {
+    const components = Array.from(container.querySelectorAll(":scope > .se-component, .se-component"));
+    const unique = components.filter((element, index) => !components.some((other, otherIndex) => (
+      otherIndex !== index && other.contains(element)
+    )));
+    const meaningful = unique.filter((element) => {
+      if (element.matches(".se-image")) return true;
+      const text = (element.textContent || "").replace(/[\s\u200B\uFEFF]/g, "");
+      return text.length > 0;
+    });
+    const last = meaningful[meaningful.length - 1];
+    return {
+      ok: Boolean(last && last.matches(".se-image")),
+      lastClass: last ? last.className : "",
+    };
+  }).catch(() => ({ ok: false, lastClass: "container_missing" }));
+  out("footer_image_last", status.ok);
+  out("footer_last_component", status.lastClass);
+  return status.ok;
+}
+
 async function visibleFirst(locator) {
   const count = await locator.count();
   for (let i = 0; i < count; i += 1) {
@@ -512,6 +535,7 @@ async function runJob() {
       intro_part: job.intro_part || "",
       body_parts: job.body_parts,
       images: job.images,
+      footer_image: job.footer_image,
       tags: job.tags || [],
       bold_blocks: job.bold_blocks || [],
     })).digest("hex");
@@ -552,7 +576,7 @@ async function runJob() {
         const existingBody = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("\n");
         const existingImages = await frame.locator(".se-component.se-image").count();
         const existingBodyOk = bodyMatchesJob(existingBody, job);
-        const existingImagesOk = existingImages >= job.images.length;
+        const existingImagesOk = existingImages >= job.images.length + 1;
         out("existing_target_title", true);
         out("existing_target_body", existingBodyOk);
         out("existing_target_images", existingImagesOk);
@@ -598,15 +622,20 @@ async function runJob() {
       await insertStructuredText(frame, page, `\n\n${tagLine}`);
     }
 
+    // 모든 글의 마지막에는 사무실 연락처 이미지를 고정한다.
+    await uploadImage(frame, page, path.join(ROOT, job.footer_image), job.images.length + 1);
+
     const bodyText = (await frame.locator(".se-component.se-text").allInnerTexts()).join("\n");
     result.body_entered = bodyMatchesJob(bodyText, job);
     const imageCount = await frame.locator(".se-component.se-image").count();
-    result.images_uploaded = imageCount >= job.images.length;
+    result.images_uploaded = imageCount >= job.images.length + 1;
+    const footerLastOk = await footerImageIsLast(frame);
     out("body_entered", result.body_entered);
     out("images_uploaded", result.images_uploaded);
     out("image_count_before_save", imageCount);
     if (!result.body_entered) throw new Error("body_verification_failed");
     if (!result.images_uploaded) throw new Error("image_verification_failed");
+    if (!footerLastOk) throw new Error("footer_image_position_failed");
     await applyBoldBlocks(frame, page, job.bold_blocks || []);
     const bodyAfterFormatting = (await frame.locator(".se-component.se-text").allInnerTexts()).join("\n");
     if (!bodyMatchesJob(bodyAfterFormatting, job)) throw new Error("body_changed_during_formatting");
@@ -642,14 +671,15 @@ async function runJob() {
     const restoredImages = await frame.locator(".se-component.se-image").count();
     const titleOk = restoredTitle.includes(job.title);
     const bodyOk = bodyMatchesJob(restoredBody, job);
-    const imagesOk = restoredImages >= job.images.length;
+    const imagesOk = restoredImages >= job.images.length + 1;
+    const restoredFooterLastOk = await footerImageIsLast(frame);
     const restoredFormattingOk = await verifyBoldBlocks(frame, job.bold_blocks || []);
     out("reload_title_present", titleOk);
     out("reload_body_present", bodyOk);
     out("reload_image_count", restoredImages);
     out("reload_images_present", imagesOk);
     out("publish_clicked", false);
-    if (!titleOk || !bodyOk || !imagesOk || !restoredFormattingOk) throw new Error("reload_verification_failed");
+    if (!titleOk || !bodyOk || !imagesOk || !restoredFooterLastOk || !restoredFormattingOk) throw new Error("reload_verification_failed");
 
     await frame.evaluate(({ key, value }) => localStorage.setItem(key, value), { key: markerKey, value: fingerprint });
     result.status = "DRAFT_SAVED";
