@@ -351,13 +351,27 @@ async function replaceLayoutMarkers(frame, page, layoutMarkers) {
         selection.addRange(range);
         document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
         if (selection.toString() !== value) return false;
-        let replaced = document.execCommand("insertLineBreak", false, null);
-        if (!replaced || element.textContent.includes(value)) {
-          selection.removeAllRanges();
-          selection.addRange(range);
-          replaced = document.execCommand("insertHTML", false, "<br>");
+        if (editable instanceof HTMLElement) {
+          editable.dispatchEvent(new InputEvent("beforeinput", {
+            bubbles: true,
+            cancelable: true,
+            inputType: "insertLineBreak",
+          }));
         }
-        // 일부 Chromium 편집 명령은 실제 변경 후에도 false를 반환하므로 DOM 결과로 판정한다.
+        range.deleteContents();
+        const lineBreak = document.createElement("br");
+        range.insertNode(lineBreak);
+        selection.removeAllRanges();
+        const caret = document.createRange();
+        caret.setStartAfter(lineBreak);
+        caret.collapse(true);
+        selection.addRange(caret);
+        if (editable instanceof HTMLElement) {
+          editable.dispatchEvent(new InputEvent("input", {
+            bubbles: true,
+            inputType: "insertLineBreak",
+          }));
+        }
         return !element.textContent.includes(value);
       }, marker).catch(() => false);
       if (selected) break;
