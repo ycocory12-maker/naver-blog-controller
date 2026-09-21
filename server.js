@@ -200,7 +200,7 @@ async function clearExistingBody(frame, page) {
   if (normalizedText.length || remainingImages) throw new Error("existing_draft_clear_failed");
 }
 
-async function toggleBoldToolbar(frame, page) {
+async function setBoldToolbarState(frame, page, enabled) {
   const selectors = [
     "button.se-toolbar-button.se-toolbar-button-bold",
     ".se-toolbar-item-bold button",
@@ -213,23 +213,16 @@ async function toggleBoldToolbar(frame, page) {
   for (const selector of selectors) {
     const button = await visibleFirst(frame.locator(selector));
     if (!button) continue;
-    const before = await button.evaluate((element) => ({
-      className: element.className,
-      ariaPressed: element.getAttribute("aria-pressed"),
-      dataActive: element.getAttribute("data-active"),
-      title: element.getAttribute("title"),
-    }));
-    await button.click();
-    await page.waitForTimeout(150);
-    const after = await button.evaluate((element) => ({
-      className: element.className,
-      ariaPressed: element.getAttribute("aria-pressed"),
-      dataActive: element.getAttribute("data-active"),
-      title: element.getAttribute("title"),
-    }));
+    const beforeSelected = await button.evaluate((element) => element.classList.contains("se-is-selected"));
+    if (beforeSelected !== enabled) {
+      await button.click();
+      await page.waitForTimeout(150);
+    }
+    const afterSelected = await button.evaluate((element) => element.classList.contains("se-is-selected"));
     out("bold_toolbar_selector", selector);
-    out("bold_toolbar_before", before);
-    out("bold_toolbar_after", after);
+    out("bold_toolbar_requested", enabled);
+    out("bold_toolbar_selected", afterSelected);
+    if (afterSelected !== enabled) throw new Error(`bold_toolbar_state_failed:${enabled}`);
     return;
   }
   throw new Error("bold_toolbar_button_missing");
@@ -254,11 +247,9 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
     const isBold = boldSet.has(block);
     out(`structured_block_${index + 1}_bold`, isBold);
 
-    if (isBold) {
-      await toggleBoldToolbar(frame, page);
-      await target.focus();
-      await page.keyboard.press("Control+End");
-    }
+    await setBoldToolbarState(frame, page, isBold);
+    await target.focus();
+    await page.keyboard.press("Control+End");
 
     if (isBulletGroup) {
       for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
@@ -269,11 +260,9 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
       await page.keyboard.insertText(block);
     }
 
-    if (isBold) {
-      await toggleBoldToolbar(frame, page);
-      await target.focus();
-      await page.keyboard.press("Control+End");
-    }
+    await setBoldToolbarState(frame, page, false);
+    await target.focus();
+    await page.keyboard.press("Control+End");
 
     // Smart Editor에서 빈 줄이 아니라 서로 구분된 문단으로 만든다.
     if (index < blocks.length - 1) {
