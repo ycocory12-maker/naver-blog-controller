@@ -357,7 +357,8 @@ async function replaceLayoutMarkers(frame, page, layoutMarkers) {
           selection.addRange(range);
           replaced = document.execCommand("insertHTML", false, "<br>");
         }
-        return replaced && !element.textContent.includes(value);
+        // 일부 Chromium 편집 명령은 실제 변경 후에도 false를 반환하므로 DOM 결과로 판정한다.
+        return !element.textContent.includes(value);
       }, marker).catch(() => false);
       if (selected) break;
     }
