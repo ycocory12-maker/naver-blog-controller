@@ -451,9 +451,6 @@ async function applyBoldBlocks(frame, page, boldBlocks = []) {
       const last = chars[start + wanted.length - 1];
       if (!first || !last) return false;
 
-      const editable = first.node.parentElement?.closest("[contenteditable='true']");
-      if (!(editable instanceof HTMLElement)) return false;
-      editable.focus();
       const selection = window.getSelection();
       const range = document.createRange();
       range.setStart(first.node, first.offset);
