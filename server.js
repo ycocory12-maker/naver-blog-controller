@@ -349,34 +349,20 @@ async function replaceLayoutMarkers(frame, page, layoutMarkers) {
         const selection = window.getSelection();
         selection.removeAllRanges();
         selection.addRange(range);
-        document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
-        if (selection.toString() !== value) return false;
-        if (editable instanceof HTMLElement) {
-          editable.dispatchEvent(new InputEvent("beforeinput", {
-            bubbles: true,
-            cancelable: true,
-            inputType: "insertLineBreak",
-          }));
-        }
-        range.deleteContents();
-        const lineBreak = document.createElement("br");
-        range.insertNode(lineBreak);
-        selection.removeAllRanges();
-        const caret = document.createRange();
-        caret.setStartAfter(lineBreak);
-        caret.collapse(true);
-        selection.addRange(caret);
-        if (editable instanceof HTMLElement) {
-          editable.dispatchEvent(new InputEvent("input", {
-            bubbles: true,
-            inputType: "insertLineBreak",
-          }));
-        }
-        return !element.textContent.includes(value);
+        // selectionchange를 인위적으로 발생시키면 네이버가 선택을 재설정하므로
+        // 실제 키 입력 직전까지 브라우저의 선택 상태만 유지한다.
+        return selection.toString() === value;
       }, marker).catch(() => false);
       if (selected) break;
     }
     if (!selected) throw new Error(`layout_marker_missing:${marker}`);
+    // 선택된 표식을 신뢰 가능한 실제 키 입력으로 교체해야 네이버 내부 저장 모델도 갱신된다.
+    await page.keyboard.press("Shift+Enter");
+    const markerRemains = await frame.locator(".se-component.se-text").evaluateAll(
+      (elements, value) => elements.some((element) => element.textContent.includes(value)),
+      marker,
+    );
+    if (markerRemains) throw new Error(`layout_marker_replace_failed:${marker}`);
   }
 
   const bodyText = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("\n");
