@@ -1,9 +1,13 @@
 const dns = require("dns").promises;
 const http = require("http");
 
-function getRaw(url) {
+function getRaw(host, path) {
   return new Promise((resolve, reject) => {
-    const req = http.get(url, { timeout: 5000 }, (res) => {
+    const req = http.get({
+      hostname: host, port: 9222, path,
+      headers: { Host: "localhost:9222" },
+      timeout: 5000
+    }, (res) => {
       let data = "";
       res.on("data", c => data += c);
       res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body: data }));
@@ -17,12 +21,14 @@ async function diagnose() {
   const host = "naver-chromium.railway.internal";
   const addresses = await dns.lookup(host, { all: true });
   console.log("chromium_dns_ok=" + (addresses.length > 0));
-  for (const path of ["/json/version", "/json/list", "/"]) {
+  for (const path of ["/json/version", "/json/list"]) {
     try {
-      const r = await getRaw("http://" + host + ":9222" + path);
+      const r = await getRaw(host, path);
       console.log("cdp_path=" + path + " status=" + r.status);
       console.log("cdp_content_type=" + (r.headers["content-type"] || ""));
-      console.log("cdp_body=" + String(r.body).replace(/[\r\n]+/g, " ").slice(0, 1000));
+      let body = String(r.body).replace(/[\r\n]+/g, " ");
+      body = body.replace(/ws:\/\/[^" ]+/g, "ws://[redacted]");
+      console.log("cdp_body=" + body.slice(0, 1500));
     } catch (e) {
       console.log("cdp_path=" + path + " error=" + e.message);
     }
