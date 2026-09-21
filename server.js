@@ -108,7 +108,7 @@ async function handleRecoveryAfterReload(frame, page) {
   return true;
 }
 
-async function openSavedDraftFromList(frame, page, title) {
+async function openSavedDraftFromList(frame, page, titles) {
   const countButton = frame.locator("button.save_count_btn__xxzDt").first();
   if (await countButton.count() !== 1) throw new Error("draft_list_button_missing");
   const countText = (await countButton.innerText().catch(() => "")).trim();
@@ -116,34 +116,57 @@ async function openSavedDraftFromList(frame, page, title) {
   await countButton.click();
   await page.waitForTimeout(2000);
 
+  const lookupTitles = Array.isArray(titles) ? titles : [titles];
   const contexts = [frame, page];
-  for (const context of contexts) {
-    const exact = context.getByText(title, { exact: true });
-    const exactCount = await exact.count().catch(() => 0);
-    out("draft_title_exact_count", exactCount);
-    for (let i = 0; i < exactCount; i += 1) {
-      const candidate = exact.nth(i);
-      if (!await candidate.isVisible().catch(() => false)) continue;
-      await candidate.click();
-      await page.waitForTimeout(3000);
-      out("draft_title_clicked", true);
-      return;
-    }
+  for (const title of lookupTitles) {
+    for (const context of contexts) {
+      const exact = context.getByText(title, { exact: true });
+      const exactCount = await exact.count().catch(() => 0);
+      out("draft_title_exact_count", exactCount);
+      for (let i = 0; i < exactCount; i += 1) {
+        const candidate = exact.nth(i);
+        if (!await candidate.isVisible().catch(() => false)) continue;
+        await candidate.click();
+        await page.waitForTimeout(3000);
+        out("draft_title_clicked", title);
+        return;
+      }
 
-    const prefix = title.slice(0, 22);
-    const partial = context.getByText(prefix, { exact: false });
-    const partialCount = await partial.count().catch(() => 0);
-    out("draft_title_partial_count", partialCount);
-    for (let i = 0; i < partialCount; i += 1) {
-      const candidate = partial.nth(i);
-      if (!await candidate.isVisible().catch(() => false)) continue;
-      await candidate.click();
-      await page.waitForTimeout(3000);
-      out("draft_title_clicked", true);
-      return;
+      const prefix = title.slice(0, 22);
+      const partial = context.getByText(prefix, { exact: false });
+      const partialCount = await partial.count().catch(() => 0);
+      out("draft_title_partial_count", partialCount);
+      for (let i = 0; i < partialCount; i += 1) {
+        const candidate = partial.nth(i);
+        if (!await candidate.isVisible().catch(() => false)) continue;
+        await candidate.click();
+        await page.waitForTimeout(3000);
+        out("draft_title_clicked", title);
+        return;
+      }
     }
   }
   throw new Error("saved_draft_title_not_found");
+}
+
+function normalizeBodyText(value) {
+  return (value || "")
+    .replace(/(^|\n)\s*[-*•]\s+/g, "$1•")
+    .replace(/[\s\u200B\uFEFF]/g, "");
+}
+
+function expectedBodyText(job) {
+  const tags = Array.isArray(job.tags) && job.tags.length
+    ? job.tags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ")
+    : "";
+  return [job.intro_part || "", ...(job.body_parts || []), tags].filter(Boolean).join("\n\n");
+}
+
+function bodyMatchesJob(actual, job) {
+  const phrasesOk = (job.verify_phrases || []).every((phrase) => actual.includes(phrase));
+  const exactOrderOk = normalizeBodyText(actual).includes(normalizeBodyText(expectedBodyText(job)));
+  out("body_exact_order_match", exactOrderOk);
+  return phrasesOk && exactOrderOk;
 }
 
 async function replaceText(page, locator, text) {
@@ -491,8 +514,10 @@ async function runJob() {
     const fingerprint = crypto.createHash("sha256").update(JSON.stringify({
       content_id: job.content_id,
       title: job.title,
+      intro_part: job.intro_part || "",
       body_parts: job.body_parts,
       images: job.images,
+      tags: job.tags || [],
       bold_blocks: job.bold_blocks || [],
     })).digest("hex");
     const markerKey = `work4_completed_${job.content_id}`;
@@ -508,9 +533,10 @@ async function runJob() {
     if (job.replace_existing_draft) {
       await handleRecoveryBeforeInput(frame, page);
       frame = await findEditorFrame(page);
+      const lookupTitles = job.draft_lookup_titles || [job.title];
       let currentTitle = await frame.locator(".se-documentTitle").innerText().catch(() => "");
-      if (!currentTitle.includes(job.title)) {
-        await openSavedDraftFromList(frame, page, job.title);
+      if (!lookupTitles.some((value) => currentTitle.includes(value))) {
+        await openSavedDraftFromList(frame, page, lookupTitles);
         frame = await findEditorFrame(page);
         const bodyText = await frame.locator("body").innerText().catch(() => "");
         if (/작성 중인 글이 있습니다|이어서 작성하시겠습니까/.test(bodyText)) {
@@ -522,7 +548,7 @@ async function runJob() {
         }
         currentTitle = await frame.locator(".se-documentTitle").innerText().catch(() => "");
       }
-      if (!currentTitle.includes(job.title)) throw new Error("existing_draft_not_opened");
+      if (!lookupTitles.some((value) => currentTitle.includes(value))) throw new Error("existing_draft_not_opened");
       await clearExistingBody(frame, page);
       out("existing_draft_replace_mode", true);
     } else {
@@ -530,7 +556,7 @@ async function runJob() {
       if (existingTitle.includes(job.title)) {
         const existingBody = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("\n");
         const existingImages = await frame.locator(".se-component.se-image").count();
-        const existingBodyOk = job.verify_phrases.every((phrase) => existingBody.includes(phrase));
+        const existingBodyOk = bodyMatchesJob(existingBody, job);
         const existingImagesOk = existingImages >= job.images.length;
         out("existing_target_title", true);
         out("existing_target_body", existingBodyOk);
@@ -563,13 +589,22 @@ async function runJob() {
     const firstBody = frame.locator(".se-component.se-text .se-module-text").first();
     await replaceText(page, firstBody, "");
 
+    if (job.intro_part) {
+      await insertStructuredText(frame, page, job.intro_part, job.bold_blocks || []);
+    }
+
     for (let i = 0; i < job.images.length; i += 1) {
       await uploadImage(frame, page, path.join(ROOT, job.images[i]), i + 1);
       await insertStructuredText(frame, page, job.body_parts[i], job.bold_blocks || []);
     }
 
+    if (Array.isArray(job.tags) && job.tags.length) {
+      const tagLine = job.tags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ");
+      await insertStructuredText(frame, page, tagLine, []);
+    }
+
     const bodyText = (await frame.locator(".se-component.se-text").allInnerTexts()).join("\n");
-    result.body_entered = job.verify_phrases.every((phrase) => bodyText.includes(phrase));
+    result.body_entered = bodyMatchesJob(bodyText, job);
     const imageCount = await frame.locator(".se-component.se-image").count();
     result.images_uploaded = imageCount >= job.images.length;
     out("body_entered", result.body_entered);
@@ -591,7 +626,7 @@ async function runJob() {
     frame = await findEditorFrame(page);
     const resumedByModal = await handleRecoveryAfterReload(frame, page);
     if (!resumedByModal) {
-      await openSavedDraftFromList(frame, page, job.title);
+      await openSavedDraftFromList(frame, page, job.draft_lookup_titles || [job.title]);
       frame = await findEditorFrame(page);
       const bodyText = await frame.locator("body").innerText().catch(() => "");
       if (/작성 중인 글이 있습니다|이어서 작성하시겠습니까/.test(bodyText)) {
@@ -608,7 +643,7 @@ async function runJob() {
     const restoredBody = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("\n");
     const restoredImages = await frame.locator(".se-component.se-image").count();
     const titleOk = restoredTitle.includes(job.title);
-    const bodyOk = job.verify_phrases.every((phrase) => restoredBody.includes(phrase));
+    const bodyOk = bodyMatchesJob(restoredBody, job);
     const imagesOk = restoredImages >= job.images.length;
     const restoredFormattingOk = await verifyBoldBlocks(frame, job.bold_blocks || []);
     out("reload_title_present", titleOk);
