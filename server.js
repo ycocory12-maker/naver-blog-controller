@@ -275,25 +275,14 @@ async function insertStructuredText(frame, page, text) {
   await target.focus();
   await page.keyboard.press("Control+End");
 
-  const blocks = text.trim().split(/\n\s*\n/).map((value) => value.trim()).filter(Boolean);
-  for (let blockIndex = 0; blockIndex < blocks.length; blockIndex += 1) {
-    const lines = blocks[blockIndex].split("\n").map((value) => value.trim()).filter(Boolean);
-    const isBulletGroup = lines.length > 0 && lines.every((line) => /^[-*•]\s+/.test(line));
-    if (isBulletGroup) {
-      for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-        await page.keyboard.insertText(`• ${lines[lineIndex].replace(/^[-*•]\s+/, "")}`);
-        // Enter는 네이버에서 새 텍스트 컴포넌트를 만들며 다음 입력을 잃을 수 있다.
-        // 목록 항목은 같은 컴포넌트 안의 줄바꿈으로 유지한다.
-        if (lineIndex < lines.length - 1) await page.keyboard.press("Shift+Enter");
-      }
-    } else {
-      await page.keyboard.insertText(blocks[blockIndex]);
-    }
-    if (blockIndex < blocks.length - 1) {
-      await page.keyboard.press("Enter");
-      await page.keyboard.press("Enter");
-    }
-  }
+  // 이미지 사이의 원문을 한 번의 입력 이벤트로 넣어 네이버가 연속 Enter 중
+  // 일부 문단을 다른 컴포넌트로 옮기거나 누락하는 현상을 막는다.
+  const canonicalText = text
+    .trim()
+    .split("\n")
+    .map((line) => line.replace(/^[-*•]\s+/, "• "))
+    .join("\n");
+  await page.keyboard.insertText(canonicalText);
   await page.waitForTimeout(500);
 }
 
