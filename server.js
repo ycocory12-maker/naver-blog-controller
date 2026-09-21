@@ -281,14 +281,14 @@ async function insertStructuredText(frame, page, text) {
     if (isBulletGroup) {
       for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
         await page.keyboard.insertText(`• ${lines[lineIndex].replace(/^[-*•]\s+/, "")}`);
-        if (lineIndex < lines.length - 1) await page.keyboard.press("Shift+Enter");
+        if (lineIndex < lines.length - 1) await page.keyboard.press("Enter");
       }
     } else {
       await page.keyboard.insertText(blocks[blockIndex]);
     }
     if (blockIndex < blocks.length - 1) {
-      await page.keyboard.press("Shift+Enter");
-      await page.keyboard.press("Shift+Enter");
+      await page.keyboard.press("Enter");
+      await page.keyboard.press("Enter");
     }
   }
   await page.waitForTimeout(500);
@@ -422,10 +422,8 @@ async function visibleFirst(locator) {
 
 async function uploadImage(frame, page, absolutePath, index) {
   const before = await frame.locator(".se-component.se-image").count();
-  const bodyBlocks = frame.locator(".se-component.se-text .se-module-text");
-  const last = bodyBlocks.nth(Math.max(0, (await bodyBlocks.count()) - 1));
-  await last.click();
 
+  // insertStructuredText가 남긴 현재 편집 커서를 유지해야 이미지가 정확한 토큰 위치에 들어간다.
   const buttonSelectors = [
     "button.se-image-toolbar-button",
     ".se-toolbar-item-image button",
