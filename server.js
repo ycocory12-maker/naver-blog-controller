@@ -273,7 +273,24 @@ async function insertStructuredText(frame, page, text) {
   await setBoldToolbarState(frame, page, false);
   await target.focus();
   await page.keyboard.press("Control+End");
-  await page.keyboard.insertText(text.trim());
+
+  const blocks = text.trim().split(/\n\s*\n/).map((value) => value.trim()).filter(Boolean);
+  for (let blockIndex = 0; blockIndex < blocks.length; blockIndex += 1) {
+    const lines = blocks[blockIndex].split("\n").map((value) => value.trim()).filter(Boolean);
+    const isBulletGroup = lines.length > 0 && lines.every((line) => /^[-*•]\s+/.test(line));
+    if (isBulletGroup) {
+      for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+        await page.keyboard.insertText(`• ${lines[lineIndex].replace(/^[-*•]\s+/, "")}`);
+        if (lineIndex < lines.length - 1) await page.keyboard.press("Enter");
+      }
+    } else {
+      await page.keyboard.insertText(blocks[blockIndex]);
+    }
+    if (blockIndex < blocks.length - 1) {
+      await page.keyboard.press("Enter");
+      await page.keyboard.press("Enter");
+    }
+  }
   await page.waitForTimeout(500);
 }
 
