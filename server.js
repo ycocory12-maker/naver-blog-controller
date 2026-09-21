@@ -324,7 +324,6 @@ async function replaceLayoutMarkers(frame, page, layoutMarkers) {
     const components = frame.locator(".se-component.se-text");
     const count = await components.count();
     let selected = false;
-    let selectedComponentIndex = -1;
     for (let componentIndex = 0; componentIndex < count; componentIndex += 1) {
       const component = components.nth(componentIndex);
       selected = await component.evaluate((element, value) => {
@@ -350,20 +349,15 @@ async function replaceLayoutMarkers(frame, page, layoutMarkers) {
         const selection = window.getSelection();
         selection.removeAllRanges();
         selection.addRange(range);
-        // selectionchange를 인위적으로 발생시키면 네이버가 선택을 재설정하므로
-        // 실제 키 입력 직전까지 브라우저의 선택 상태만 유지한다.
-        return selection.toString() === value;
+        if (selection.toString() !== value) return false;
+        // execCommand(insertText)는 실제 input 이벤트를 발생시켜 네이버 내부 모델에도 기록된다.
+        document.execCommand("insertText", false, "\n");
+        return !element.textContent.includes(value);
       }, marker).catch(() => false);
-      if (selected) {
-        selectedComponentIndex = componentIndex;
-        break;
-      }
+      if (selected) break;
     }
     if (!selected) throw new Error(`layout_marker_missing:${marker}`);
-    // 선택된 표식을 신뢰 가능한 실제 키 입력으로 교체해야 네이버 내부 저장 모델도 갱신된다.
-    const editable = components.nth(selectedComponentIndex).locator(".se-module-text").first();
-    if (await editable.count() !== 1) throw new Error(`layout_editable_missing:${marker}`);
-    await editable.press("Shift+Enter");
+    // 실제 DOM과 네이버 저장 모델 양쪽에서 표식이 제거됐는지 즉시 확인한다.
     const markerRemains = await frame.locator(".se-component.se-text").evaluateAll(
       (elements, value) => elements.some((element) => element.textContent.includes(value)),
       marker,
