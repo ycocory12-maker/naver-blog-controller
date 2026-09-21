@@ -264,17 +264,13 @@ async function setBoldToolbarState(frame, page, enabled) {
   throw new Error("bold_toolbar_button_missing");
 }
 
-async function insertStructuredText(frame, page, text) {
+async function insertStructuredText(frame, page, text, boldBlocks = []) {
   const bodyBlocks = frame.locator(".se-component.se-text .se-module-text");
   const count = await bodyBlocks.count();
   if (!count) throw new Error("body_text_block_missing");
   const target = bodyBlocks.nth(count - 1);
   await target.scrollIntoViewIfNeeded();
   await target.click();
-  await setBoldToolbarState(frame, page, false);
-  await target.focus();
-  await page.keyboard.press("Control+End");
-
   // 이미지 사이의 원문을 한 번의 입력 이벤트로 넣어 네이버가 연속 Enter 중
   // 일부 문단을 다른 컴포넌트로 옮기거나 누락하는 현상을 막는다.
   const canonicalText = text
@@ -282,7 +278,37 @@ async function insertStructuredText(frame, page, text) {
     .split("\n")
     .map((line) => line.replace(/^[-*•]\s+/, "• "))
     .join("\n");
-  await page.keyboard.insertText(canonicalText);
+
+  const boldRanges = boldBlocks
+    .map((value) => ({ value, start: canonicalText.indexOf(value) }))
+    .filter((range) => range.start >= 0)
+    .sort((left, right) => left.start - right.start);
+
+  let offset = 0;
+  for (const range of boldRanges) {
+    if (range.start < offset) throw new Error("overlapping_bold_blocks");
+    const plain = canonicalText.slice(offset, range.start);
+    if (plain) {
+      await setBoldToolbarState(frame, page, false);
+      await target.focus();
+      await page.keyboard.press("Control+End");
+      await page.keyboard.insertText(plain);
+    }
+    await setBoldToolbarState(frame, page, true);
+    await target.focus();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.insertText(range.value);
+    offset = range.start + range.value.length;
+  }
+
+  const tail = canonicalText.slice(offset);
+  if (tail) {
+    await setBoldToolbarState(frame, page, false);
+    await target.focus();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.insertText(tail);
+  }
+  await setBoldToolbarState(frame, page, false);
   await page.waitForTimeout(500);
 }
 
@@ -625,7 +651,6 @@ async function runJob() {
     if (!result.body_entered) throw new Error("body_verification_failed");
     if (!result.images_uploaded) throw new Error("image_verification_failed");
     if (!footerLastOk) throw new Error("footer_image_position_failed");
-    await applyBoldBlocks(frame, page, job.bold_blocks || []);
     const bodyAfterFormatting = (await frame.locator(".se-component.se-text").allInnerTexts()).join("\n");
     if (!bodyMatchesJob(bodyAfterFormatting, job)) throw new Error("body_changed_during_formatting");
     const formattingOk = await verifyBoldBlocks(frame, job.bold_blocks || []);
