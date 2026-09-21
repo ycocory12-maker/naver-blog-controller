@@ -164,8 +164,20 @@ function expectedBodyText(job) {
 
 function bodyMatchesJob(actual, job) {
   const phrasesOk = (job.verify_phrases || []).every((phrase) => actual.includes(phrase));
-  const exactOrderOk = normalizeBodyText(actual).includes(normalizeBodyText(expectedBodyText(job)));
+  const actualNormalized = normalizeBodyText(actual);
+  const expectedNormalized = normalizeBodyText(expectedBodyText(job));
+  const exactOrderOk = actualNormalized.includes(expectedNormalized);
   out("body_exact_order_match", exactOrderOk);
+  if (!exactOrderOk) {
+    let mismatchIndex = 0;
+    const limit = Math.min(actualNormalized.length, expectedNormalized.length);
+    while (mismatchIndex < limit && actualNormalized[mismatchIndex] === expectedNormalized[mismatchIndex]) mismatchIndex += 1;
+    out("body_actual_length", actualNormalized.length);
+    out("body_expected_length", expectedNormalized.length);
+    out("body_mismatch_index", mismatchIndex);
+    out("body_actual_mismatch_preview", actualNormalized.slice(Math.max(0, mismatchIndex - 50), mismatchIndex + 120));
+    out("body_expected_mismatch_preview", expectedNormalized.slice(Math.max(0, mismatchIndex - 50), mismatchIndex + 120));
+  }
   return phrasesOk && exactOrderOk;
 }
 
