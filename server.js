@@ -294,10 +294,15 @@ async function verifyBoldBlocks(frame, boldBlocks = []) {
         }
         if (!textNodes.length) return false;
 
-        return textNodes.every((node) => {
-          const weight = window.getComputedStyle(node.parentElement).fontWeight;
-          return weight === "bold" || weight === "bolder" || Number(weight) >= 600;
-        });
+        const normalize = (value) => value.replace(/[\s\u200B\uFEFF]/g, "");
+        const boldText = textNodes
+          .filter((node) => {
+            const weight = window.getComputedStyle(node.parentElement).fontWeight;
+            return weight === "bold" || weight === "bolder" || Number(weight) >= 600;
+          })
+          .map((node) => node.textContent || "")
+          .join("");
+        return normalize(boldText).includes(normalize(expected));
       }, text).catch(() => false);
     }
     out(`bold_block_${blockIndex + 1}_verified`, bold);
