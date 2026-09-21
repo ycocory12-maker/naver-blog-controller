@@ -451,6 +451,9 @@ async function applyBoldBlocks(frame, page, boldBlocks = []) {
       const last = chars[start + wanted.length - 1];
       if (!first || !last) return false;
 
+      const editable = first.node.parentElement?.closest("[contenteditable='true']");
+      if (!(editable instanceof HTMLElement)) return false;
+      editable.focus();
       const selection = window.getSelection();
       const range = document.createRange();
       range.setStart(first.node, first.offset);
@@ -462,9 +465,13 @@ async function applyBoldBlocks(frame, page, boldBlocks = []) {
     }, expected).catch(() => false);
 
     if (!selected) throw new Error(`bold_range_selection_failed:${blockIndex + 1}`);
-    await page.waitForTimeout(200);
-    await setBoldToolbarState(frame, page, true);
-    await page.waitForTimeout(200);
+    // Clicking the toolbar clears Smart Editor's live selection. Keep the range
+    // active and apply the editor's native bold shortcut to that exact range.
+    await page.keyboard.press("Control+B");
+    await page.waitForTimeout(300);
+    if (!await verifyBoldBlocks(frame, [expected])) {
+      throw new Error(`bold_shortcut_verification_failed:${blockIndex + 1}`);
+    }
     out(`bold_block_${blockIndex + 1}_postprocessed`, true);
   }
 
@@ -474,7 +481,6 @@ async function applyBoldBlocks(frame, page, boldBlocks = []) {
     const last = bodyBlocks.nth(count - 1);
     await last.focus();
     await page.keyboard.press("Control+End");
-    await setBoldToolbarState(frame, page, false);
   }
 }
 
