@@ -200,6 +200,15 @@ async function clearExistingBody(frame, page) {
   if (normalizedText.length || remainingImages) throw new Error("existing_draft_clear_failed");
 }
 
+async function setBoldState(frame, enabled) {
+  const state = await frame.evaluate((desired) => {
+    const before = document.queryCommandState("bold");
+    if (before !== desired) document.execCommand("bold", false, null);
+    return { before, after: document.queryCommandState("bold") };
+  }, enabled);
+  if (state.after !== enabled) throw new Error(`bold_state_failed:${enabled}`);
+}
+
 async function insertStructuredText(frame, page, text, boldBlocks = []) {
   const blocks = text.trim().split(/\n\s*\n/).map((value) => value.trim()).filter(Boolean);
   const boldSet = new Set(boldBlocks.map((value) => value.trim()));
@@ -211,13 +220,15 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
     const target = bodyBlocks.nth(count - 1);
     await target.scrollIntoViewIfNeeded();
     await target.click();
+    await page.keyboard.press("Control+End");
 
     const block = blocks[index];
     const lines = block.split("\n").map((value) => value.trim()).filter(Boolean);
     const isBulletGroup = lines.length > 0 && lines.every((line) => line.startsWith("- "));
     const isBold = boldSet.has(block);
+    out(`structured_block_${index + 1}_bold`, isBold);
 
-    if (isBold) await page.keyboard.press("Control+B");
+    await setBoldState(frame, isBold);
 
     if (isBulletGroup) {
       for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
@@ -228,7 +239,7 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
       await page.keyboard.insertText(block);
     }
 
-    if (isBold) await page.keyboard.press("Control+B");
+    await setBoldState(frame, false);
 
     // Smart Editor에서 빈 줄이 아니라 서로 구분된 문단으로 만든다.
     if (index < blocks.length - 1) {
@@ -242,7 +253,8 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
 
 async function verifyBoldBlocks(frame, boldBlocks = []) {
   let verified = 0;
-  for (const text of boldBlocks) {
+  for (let blockIndex = 0; blockIndex < boldBlocks.length; blockIndex += 1) {
+    const text = boldBlocks[blockIndex];
     const paragraphs = frame.locator(".se-text-paragraph").filter({ hasText: text });
     const count = await paragraphs.count();
     let bold = false;
@@ -257,7 +269,7 @@ async function verifyBoldBlocks(frame, boldBlocks = []) {
         });
       }, text).catch(() => false);
     }
-    out(`bold_block_${verified + 1}_verified`, bold);
+    out(`bold_block_${blockIndex + 1}_verified`, bold);
     if (bold) verified += 1;
   }
   out("bold_blocks_verified", verified);
