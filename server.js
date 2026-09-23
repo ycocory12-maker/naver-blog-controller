@@ -129,6 +129,32 @@ async function inspectCdpTargets() {
         }
       }
       if (staleUiTargets.length) await sleep(1000);
+
+      const naverPages = targets.filter((target) => {
+        if (!target || !target.id || target.type !== "page") return false;
+        try { return new URL(target.url || "about:blank").hostname === "blog.naver.com"; } catch (_) { return false; }
+      });
+      out("cdp_naver_page_count", naverPages.length);
+      if (naverPages.length > 1) {
+        const keep = naverPages.find((target) => /Redirect=Write/i.test(target.url || "")) || naverPages[0];
+        for (const target of naverPages) {
+          if (target.id === keep.id) continue;
+          try {
+            const closed = await closeCdpTargetOnce(target.id);
+            out("cdp_duplicate_naver_page_closed", closed.statusCode === 200);
+          } catch (error) {
+            out("cdp_duplicate_naver_page_close_error", error.message);
+          }
+        }
+        await sleep(1200);
+      }
+
+      try {
+        const after = await getCdpTargetsOnce();
+        out("cdp_target_count_after_cleanup", Array.isArray(after) ? after.length : -1);
+      } catch (error) {
+        out("cdp_target_recheck_error", error.message);
+      }
     }
   } catch (error) {
     out("cdp_target_list_error", error.message);
