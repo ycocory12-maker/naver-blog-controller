@@ -1108,6 +1108,73 @@ function readJsonRequest(req, maxBytes = 8 * 1024 * 1024) {
   });
 }
 
+async function finalizeWork3Sheet(sheetPath) {
+  const meta = await sharp(sheetPath).metadata();
+  const width = meta.width || 0;
+  const height = meta.height || 0;
+  if (width < 800 || height < 500) throw new Error("work3_sheet_too_small");
+  const halfW = Math.floor(width / 2);
+  const halfH = Math.floor(height / 2);
+  const crops = [
+    { left: 0, top: 0, width: halfW, height: halfH },
+    { left: halfW, top: 0, width: width - halfW, height: halfH },
+    { left: 0, top: halfH, width: halfW, height: height - halfH },
+    { left: halfW, top: halfH, width: width - halfW, height: height - halfH },
+  ];
+  for (let i = 0; i < crops.length; i += 1) {
+    await sharp(sheetPath)
+      .extract(crops[i])
+      .resize(600, 400, { fit: "fill" })
+      .jpeg({ quality: 86 })
+      .toFile(path.join("/tmp", `work4-runtime-${i + 1}.jpg`));
+    out(`work3_sheet_crop_${i + 1}_ready`, true);
+  }
+}
+
+async function handleWork3Chunk(req, res, url) {
+  const token = process.env.WORK4_UPLOAD_TOKEN || "";
+  if (!token || url.searchParams.get("token") !== token) {
+    res.statusCode = 403;
+    res.end(JSON.stringify({ error: "forbidden" }));
+    return;
+  }
+  try {
+    const part = Number(url.searchParams.get("part"));
+    const total = Number(url.searchParams.get("total"));
+    const data = url.searchParams.get("data") || "";
+    if (!Number.isInteger(part) || !Number.isInteger(total) || part < 0 || total < 1 || part >= total || total > 100) {
+      throw new Error("invalid_chunk_index");
+    }
+    if (!data || data.length > 12000) throw new Error("invalid_chunk_size");
+
+    const dir = path.join("/tmp", "work3-sheet-chunks");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, String(part).padStart(3, "0") + ".txt"), data, "utf8");
+    out("work3_sheet_chunk_received", `${part + 1}/${total}`);
+
+    const files = fs.readdirSync(dir).filter((name) => /\.txt$/.test(name)).sort();
+    if (files.length < total) {
+      res.end(JSON.stringify({ ok: true, received: part + 1, total }));
+      return;
+    }
+
+    const encoded = files.slice(0, total).map((name) => fs.readFileSync(path.join(dir, name), "utf8")).join("");
+    const buffer = Buffer.from(encoded, "base64");
+    if (buffer.length < 50000 || buffer.length > 3 * 1024 * 1024) throw new Error("invalid_work3_sheet_size");
+    if (!(buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff)) throw new Error("work3_sheet_not_jpeg");
+
+    const sheetPath = path.join("/tmp", "work3-sheet.jpg");
+    fs.writeFileSync(sheetPath, buffer);
+    await finalizeWork3Sheet(sheetPath);
+    for (const name of files) fs.unlinkSync(path.join(dir, name));
+    res.end(JSON.stringify({ ok: true, completed: true, action: "draft_run_started" }));
+    setImmediate(() => runJob().catch((error) => out("controller_error", error.message)));
+  } catch (error) {
+    res.statusCode = 400;
+    res.end(JSON.stringify({ error: error.message }));
+  }
+}
+
 async function handleWork3Upload(req, res) {
   const token = process.env.WORK4_UPLOAD_TOKEN || "";
   if (!token || req.headers["x-work4-token"] !== token) {
@@ -1147,6 +1214,11 @@ async function handleWork3Upload(req, res) {
 
 const server = http.createServer((req, res) => {
   res.setHeader("content-type", "application/json; charset=utf-8");
+  const parsedUrl = new URL(req.url, "http://localhost");
+  if (req.method === "GET" && parsedUrl.pathname === "/work4/work3-chunk") {
+    handleWork3Chunk(req, res, parsedUrl);
+    return;
+  }
   if (req.method === "POST" && req.url === "/work4/work3-upload") {
     handleWork3Upload(req, res);
     return;
