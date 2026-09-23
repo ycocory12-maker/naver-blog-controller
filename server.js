@@ -68,6 +68,26 @@ async function getVersion() {
   throw new Error("cdp_version_failed");
 }
 
+async function connectBrowserOverCdp(wsUrl) {
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      out("cdp_connect_attempt", attempt);
+      const browser = await chromium.connectOverCDP(wsUrl, {
+        headers: { Host: "localhost:9222" },
+        timeout: 20000,
+      });
+      out("cdp_connect_ok", true);
+      return browser;
+    } catch (error) {
+      lastError = error;
+      out("cdp_connect_error", error.message.slice(0, 160));
+      if (attempt < 3) await sleep(1500);
+    }
+  }
+  throw lastError || new Error("cdp_connect_failed");
+}
+
 async function findEditorFrame(page, timeoutMs = 15000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -741,10 +761,7 @@ async function runJob() {
 
   const version = await getVersion();
   const wsUrl = `ws://naver-chromium.railway.internal:9222${new URL(version.webSocketDebuggerUrl).pathname}`;
-  const browser = await chromium.connectOverCDP(wsUrl, {
-    headers: { Host: "localhost:9222" },
-    timeout: 10000,
-  });
+  const browser = await connectBrowserOverCdp(wsUrl);
 
   try {
     const pages = browser.contexts().flatMap((context) => context.pages());
