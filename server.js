@@ -373,29 +373,39 @@ function normalizeLayout(value) {
 }
 
 async function layoutMatchesJob(frame, job) {
-  const actualSections = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => []))
-    .map((value) => normalizeLayout(value.replace("글감과 함께 나의 일상을 기록해보세요!", "")))
-    .filter(Boolean);
-  const expectedSections = [job.intro_part || "", ...(job.body_parts || [])]
-    .filter(Boolean)
-    .map(normalizeLayout);
+  const normalizeLine = (value) => (value || "")
+    .replace(/[\u200B\uFEFF]/g, "")
+    .replace(/^\s*[-*•]\s+/, "• ")
+    .replace(/[ \t]+/g, " ")
+    .trim();
 
-  let actualIndex = 0;
-  for (let expectedIndex = 0; expectedIndex < expectedSections.length; expectedIndex += 1) {
-    const expected = expectedSections[expectedIndex];
+  const actualLines = (await frame.locator(".se-component.se-text .se-text-paragraph").allInnerTexts().catch(() => []))
+    .map(normalizeLine)
+    .filter(Boolean)
+    .filter((line) => line !== "글감과 함께 나의 일상을 기록해보세요!");
+
+  const expectedLines = [job.intro_part || "", ...(job.body_parts || [])]
+    .join("\n")
+    .split("\n")
+    .map(normalizeLine)
+    .filter(Boolean);
+
+  let cursor = 0;
+  for (let i = 0; i < expectedLines.length; i += 1) {
+    const expected = expectedLines[i];
     let found = false;
-    while (actualIndex < actualSections.length) {
-      if (actualSections[actualIndex] === expected) {
+    while (cursor < actualLines.length) {
+      if (actualLines[cursor] === expected) {
         found = true;
-        actualIndex += 1;
+        cursor += 1;
         break;
       }
-      actualIndex += 1;
+      cursor += 1;
     }
     if (!found) {
-      out("layout_missing_section", expectedIndex + 1);
+      out("layout_missing_line", i + 1);
       out("layout_expected_preview", expected.slice(0, 240));
-      out("layout_actual_sections", actualSections.map((value) => value.slice(0, 120)));
+      out("layout_actual_lines", actualLines.slice(Math.max(0, cursor - 4), cursor + 8));
       out("body_layout_match", false);
       return false;
     }
@@ -1024,14 +1034,16 @@ async function runJob() {
       await insertStructuredText(frame, page, job.intro_part, job.bold_blocks || []);
     }
 
+    const tagLine = Array.isArray(job.tags) && job.tags.length
+      ? job.tags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ")
+      : "";
+
     for (let i = 0; i < job.images.length; i += 1) {
       await uploadImage(frame, page, path.join(ROOT, job.images[i]), i + 1);
-      await insertStructuredText(frame, page, job.body_parts[i], job.bold_blocks || []);
-    }
-
-    if (Array.isArray(job.tags) && job.tags.length) {
-      const tagLine = job.tags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ");
-      await insertStructuredText(frame, page, `\n\n${tagLine}`, job.bold_blocks || []);
+      const bodyPart = (i === job.images.length - 1 && tagLine)
+        ? `${job.body_parts[i]}\n\n${tagLine}`
+        : job.body_parts[i];
+      await insertStructuredText(frame, page, bodyPart, job.bold_blocks || []);
     }
 
     // 모든 글의 마지막에는 사무실 연락처 이미지를 고정한다.
