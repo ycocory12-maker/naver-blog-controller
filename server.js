@@ -87,6 +87,23 @@ function getCdpTargetsOnce() {
   });
 }
 
+function closeCdpTargetOnce(id) {
+  return new Promise((resolve, reject) => {
+    const req = http.get({
+      hostname: "naver-chromium.railway.internal",
+      port: 9222,
+      path: `/json/close/${encodeURIComponent(id)}`,
+      headers: { Host: "localhost:9222" },
+    }, (res) => {
+      let data = "";
+      res.on("data", (chunk) => { data += chunk; });
+      res.on("end", () => resolve({ statusCode: res.statusCode, data }));
+    });
+    req.setTimeout(5000, () => req.destroy(new Error("target_close_timeout")));
+    req.on("error", reject);
+  });
+}
+
 async function inspectCdpTargets() {
   try {
     const targets = await getCdpTargetsOnce();
@@ -98,6 +115,20 @@ async function inspectCdpTargets() {
         return { type: target.type || "", host, isNaver: /naver\.com$/i.test(host) || /\.naver\.com$/i.test(host) };
       });
       out("cdp_target_summary", summary);
+
+      const staleUiTargets = targets.filter((target) =>
+        target && target.id && target.type === "browser_ui" && /omnibox-popup\.top-chrome/i.test(target.url || "")
+      );
+      out("cdp_stale_ui_target_count", staleUiTargets.length);
+      for (const target of staleUiTargets) {
+        try {
+          const closed = await closeCdpTargetOnce(target.id);
+          out("cdp_stale_ui_target_closed", closed.statusCode === 200);
+        } catch (error) {
+          out("cdp_stale_ui_target_close_error", error.message);
+        }
+      }
+      if (staleUiTargets.length) await sleep(1000);
     }
   } catch (error) {
     out("cdp_target_list_error", error.message);
