@@ -48,7 +48,7 @@ function loadJob() {
   if (preflight.require_main_keyword && (!job.main_keyword || !job.title.includes(job.main_keyword))) {
     throw new Error("preflight_main_keyword_missing");
   }
-  if (preflight.require_generated_images && job.image_source !== "WORK3_imagegen") {
+  if (preflight.require_generated_images && !["WORK3_imagegen", "WORK3_designed_from_imagegen"].includes(job.image_source)) {
     throw new Error("preflight_generated_images_missing");
   }
   for (const image of [...job.images, job.footer_image]) {
