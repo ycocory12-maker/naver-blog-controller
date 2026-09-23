@@ -70,5 +70,5 @@
     "require_main_keyword": true,
     "require_generated_images": true
   },
-  "image_source": "WORK3_imagegen"
+  "image_source": "WORK3_designed_from_imagegen"
 }
