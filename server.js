@@ -588,26 +588,17 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
   const target = bodyBlocks.nth(count - 1);
   await target.scrollIntoViewIfNeeded();
   await target.click();
+  await setBoldToolbarState(frame, page, false);
+  await target.focus();
+  await page.keyboard.press("Control+End");
 
-  const normalize = (value) => (value || "").replace(/[\s\u200B\uFEFF]/g, "");
-  const boldSet = new Set((boldBlocks || []).map(normalize));
   const lines = text
     .trim()
     .split("\n")
     .map((line) => line.replace(/^[-*•]\s+/, "• "));
 
-  await setBoldToolbarState(frame, page, false);
-  await target.focus();
-  await page.keyboard.press("Control+End");
-
   for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    const shouldBold = line.length > 0 && boldSet.has(normalize(line));
-
-    if (shouldBold) await page.keyboard.press("Control+b");
-    if (line.length) await page.keyboard.insertText(line);
-    if (shouldBold) await page.keyboard.press("Control+b");
-
+    if (lines[i].length) await page.keyboard.insertText(lines[i]);
     if (i < lines.length - 1) await page.keyboard.press("Enter");
   }
   await page.waitForTimeout(500);
@@ -993,6 +984,9 @@ async function runJob() {
     if (!result.images_uploaded) throw new Error("image_verification_failed");
     if (!footerLastOk) throw new Error("footer_image_position_failed");
     if (!layoutOk) throw new Error("body_layout_verification_failed");
+
+    await applyBoldBlocks(frame, page, job.bold_blocks || []);
+
     const bodyAfterFormatting = (await frame.locator(".se-component.se-text").allInnerTexts()).join("\n");
     if (!bodyMatchesJob(bodyAfterFormatting, job)) throw new Error("body_changed_during_formatting");
     if (!await layoutMatchesJob(frame, job)) throw new Error("body_layout_changed_during_formatting");
