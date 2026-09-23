@@ -78,6 +78,40 @@ async function findEditorFrame(page, timeoutMs = 15000) {
   throw new Error("editor_frame_missing");
 }
 
+async function closeDraftListOverlay(frame, page) {
+  const overlay = frame.locator('[aria-label="임시저장 글 보기"]').first();
+  if (!await overlay.isVisible().catch(() => false)) {
+    out("draft_list_overlay_open", false);
+    return;
+  }
+  out("draft_list_overlay_open", true);
+  await page.keyboard.press("Escape").catch(() => {});
+  await page.waitForTimeout(500);
+  if (!await overlay.isVisible().catch(() => false)) {
+    out("draft_list_overlay_closed", "escape");
+    return;
+  }
+
+  const selectors = [
+    'button[aria-label*="닫기"]',
+    'button[title*="닫기"]',
+    'button:has-text("닫기")',
+    '.layer_popup__MFPwH button[class*="close"]',
+    '.layer_popup__MFPwH button[class*="Close"]'
+  ];
+  for (const selector of selectors) {
+    const button = await visibleFirst(frame.locator(selector));
+    if (!button) continue;
+    await button.click({ force: true }).catch(() => {});
+    await page.waitForTimeout(500);
+    if (!await overlay.isVisible().catch(() => false)) {
+      out("draft_list_overlay_closed", selector);
+      return;
+    }
+  }
+  throw new Error("draft_list_overlay_close_failed");
+}
+
 async function handleRecoveryBeforeInput(frame, page) {
   const bodyText = await frame.locator("body").innerText().catch(() => "");
   const visible = /작성 중인 글이 있습니다|이어서 작성하시겠습니까/.test(bodyText);
@@ -724,6 +758,7 @@ async function runJob() {
       frame = await findEditorFrame(page, 25000);
     }
     result.editor_opened = true;
+    await closeDraftListOverlay(frame, page);
 
     const fingerprint = crypto.createHash("sha256").update(JSON.stringify({
       content_id: job.content_id,
