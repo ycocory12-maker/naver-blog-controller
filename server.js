@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { chromium } = require("playwright-core");
+const sharp = require("sharp");
 
 const PORT = Number(process.env.PORT || 3000);
 const RUN_ON_BOOT = process.env.RUN_ON_BOOT === "true";
