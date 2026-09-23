@@ -470,15 +470,34 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
   await target.click();
   await target.focus();
   await page.keyboard.press("Control+End");
-  await setBoldToolbarState(frame, page, false);
 
+  const normalize = (value) => (value || "").replace(/[\s\u200B\uFEFF]/g, "");
+  const boldSet = new Set((boldBlocks || []).map(normalize));
   const lines = text
     .trim()
     .split("\n")
     .map((line) => line.replace(/^[-*•]\s+/, "• "));
 
+  await setBoldToolbarState(frame, page, false);
+
   for (let i = 0; i < lines.length; i += 1) {
-    if (lines[i].length) await page.keyboard.insertText(lines[i]);
+    const line = lines[i];
+    const shouldBold = line.length > 0 && boldSet.has(normalize(line));
+
+    if (shouldBold) {
+      await setBoldToolbarState(frame, page, true);
+      await target.focus();
+      await page.keyboard.press("Control+End");
+    }
+
+    if (line.length) await page.keyboard.insertText(line);
+
+    if (shouldBold) {
+      await setBoldToolbarState(frame, page, false);
+      await target.focus();
+      await page.keyboard.press("Control+End");
+    }
+
     if (i < lines.length - 1) await page.keyboard.press("Enter");
   }
   await page.waitForTimeout(500);
