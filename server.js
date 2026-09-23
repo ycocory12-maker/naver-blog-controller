@@ -992,16 +992,45 @@ async function runJob() {
         out("existing_target_body", existingBodyOk);
         out("existing_target_images", existingImagesOk);
         if (existingBodyOk && existingImagesOk) {
-          result.title_entered = true;
-          result.body_entered = true;
-          result.images_uploaded = true;
-          result.draft_saved = true;
-          result.status = "DRAFT_SAVED";
-          await frame.evaluate(({ key, value }) => localStorage.setItem(key, value), { key: markerKey, value: fingerprint });
-          lastResult = result;
-          out("publish_clicked", false);
-          out("work4_result", result);
-          return result;
+          const existingFooterOk = await footerImageIsLast(frame);
+          const existingLayoutOk = await layoutMatchesJob(frame, job);
+          let existingFormattingOk = await verifyBoldBlocks(frame, job.bold_blocks || []);
+
+          if (!existingFormattingOk && existingFooterOk && existingLayoutOk) {
+            out("existing_target_formatting_repair", true);
+            await applyBoldBlocks(frame, page, job.bold_blocks || []);
+            const bodyAfterRepair = (await frame.locator(".se-component.se-text").allInnerTexts()).join("\n");
+            if (!bodyMatchesJob(bodyAfterRepair, job)) throw new Error("body_changed_during_formatting_repair");
+            if (!await layoutMatchesJob(frame, job)) throw new Error("layout_changed_during_formatting_repair");
+            existingFormattingOk = await verifyBoldBlocks(frame, job.bold_blocks || []);
+
+            if (existingFormattingOk) {
+              const save = frame.locator("button.save_btn__FuUyN").first();
+              if (await save.count() !== 1) throw new Error("draft_save_button_missing_after_formatting_repair");
+              await save.click();
+              await page.waitForTimeout(3000);
+              out("draft_save_clicked_after_formatting_repair", true);
+            }
+          }
+
+          out("existing_target_footer", existingFooterOk);
+          out("existing_target_layout", existingLayoutOk);
+          out("existing_target_formatting", existingFormattingOk);
+
+          if (existingFooterOk && existingLayoutOk && existingFormattingOk) {
+            result.title_entered = true;
+            result.body_entered = true;
+            result.images_uploaded = true;
+            result.draft_saved = true;
+            result.status = "DRAFT_SAVED";
+            await frame.evaluate(({ key, value }) => localStorage.setItem(key, value), { key: markerKey, value: fingerprint });
+            lastResult = result;
+            out("publish_clicked", false);
+            out("work4_result", result);
+            return result;
+          }
+
+          throw new Error("existing_target_formatting_incomplete");
         }
         await clearExistingBody(frame, page);
         out("existing_target_incomplete_replaced", true);
