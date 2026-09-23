@@ -760,38 +760,82 @@ async function verifyBoldBlocks(frame, boldBlocks = []) {
     const paragraphs = frame.locator(".se-component.se-text");
     const count = await paragraphs.count();
     let bold = false;
+    let evidence = null;
+
     for (let i = 0; i < count && !bold; i += 1) {
       const contains = await paragraphs.nth(i).evaluate((element, expected) => {
         const normalize = (value) => (value || "").replace(/[\s\u200B\uFEFF]/g, "");
         return normalize(element.textContent).includes(normalize(expected));
       }, text).catch(() => false);
       if (!contains) continue;
-      bold = await paragraphs.nth(i).evaluate((element, expected) => {
-        const content = (element.textContent || "").replace(/[\u200B\uFEFF]/g, "").trim();
-        if (!content.includes(expected.trim())) return false;
 
+      evidence = await paragraphs.nth(i).evaluate((element, expected) => {
+        const normalize = (value) => (value || "").replace(/[\s\u200B\uFEFF]/g, "");
+        const wanted = normalize(expected);
         const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
         const textNodes = [];
         let current = walker.nextNode();
         while (current) {
-          if ((current.textContent || "").replace(/[\s\u200B\uFEFF]/g, "").length) {
-            textNodes.push(current);
-          }
+          if (normalize(current.textContent || "").length) textNodes.push(current);
           current = walker.nextNode();
         }
-        if (!textNodes.length) return false;
 
-        const normalize = (value) => value.replace(/[\s\u200B\uFEFF]/g, "");
-        const boldText = textNodes
-          .filter((node) => {
-            const weight = window.getComputedStyle(node.parentElement).fontWeight;
-            return weight === "bold" || weight === "bolder" || Number(weight) >= 600;
-          })
-          .map((node) => node.textContent || "")
-          .join("");
-        return normalize(boldText).includes(normalize(expected));
-      }, text).catch(() => false);
+        let compact = "";
+        const charMap = [];
+        for (const node of textNodes) {
+          const content = node.textContent || "";
+          for (let offset = 0; offset < content.length; offset += 1) {
+            const char = content[offset];
+            if (!/[\s\u200B\uFEFF]/.test(char)) {
+              compact += char;
+              charMap.push({ node, offset });
+            }
+          }
+        }
+
+        const start = compact.indexOf(wanted);
+        if (start < 0) return { found: false, html: element.innerHTML.slice(0, 2000) };
+        const end = start + wanted.length - 1;
+        const nodes = new Set();
+        for (let idx = start; idx <= end; idx += 1) {
+          if (charMap[idx]?.node) nodes.add(charMap[idx].node);
+        }
+
+        const nodeEvidence = [];
+        let allBold = nodes.size > 0;
+        for (const node of nodes) {
+          let el = node.parentElement;
+          let nodeBold = false;
+          const chain = [];
+          while (el && el !== element.parentElement) {
+            const style = window.getComputedStyle(el);
+            const weight = style.fontWeight;
+            const cls = typeof el.className === "string" ? el.className : "";
+            const tag = el.tagName;
+            chain.push({ tag, cls, weight, style: el.getAttribute("style") || "" });
+            if (weight === "bold" || weight === "bolder" || Number(weight) >= 600 ||
+                /bold|strong/i.test(cls) || tag === "STRONG" || tag === "B") {
+              nodeBold = true;
+            }
+            if (el === element) break;
+            el = el.parentElement;
+          }
+          if (!nodeBold) allBold = false;
+          nodeEvidence.push({ text: (node.textContent || "").slice(0, 120), nodeBold, chain });
+        }
+
+        return {
+          found: true,
+          allBold,
+          html: element.innerHTML.slice(0, 3000),
+          nodeEvidence,
+        };
+      }, text).catch(() => null);
+
+      bold = Boolean(evidence && evidence.found && evidence.allBold);
     }
+
+    out(`bold_block_${blockIndex + 1}_evidence`, evidence);
     out(`bold_block_${blockIndex + 1}_verified`, bold);
     if (bold) verified += 1;
   }
