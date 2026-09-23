@@ -1,1 +1,38 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600"><rect width="100%" height="100%" rx="32" fill="#f4f9ff"/><text x="55" y="100" font-size="48" font-weight="700" fill="#123">02 어떤 증빙을</text><text x="55" y="160" font-size="48" font-weight="700" fill="#1474b8">챙겨야 할까요?</text><g font-size="28" fill="#123"><rect x="55" y="220" width="370" height="95" rx="20" fill="white"/><text x="85" y="280">① 카드매출전표</text><rect x="475" y="220" width="370" height="95" rx="20" fill="white"/><text x="505" y="280">② 세금계산서</text><rect x="55" y="345" width="370" height="95" rx="20" fill="white"/><text x="85" y="405">③ 현금영수증</text><rect x="475" y="345" width="370" height="95" rx="20" fill="white"/><text x="505" y="405">④ 사용목적 메모</text></g><text x="55" y="525" font-size="25" fill="#123">거래 증빙과 함께 언제·누구와·무슨 목적으로 썼는지 기록해두면 좋습니다.</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400">
+<rect width="600" height="400" rx="28" fill="#F7FAFF"/>
+<circle cx="55" cy="55" r="32" fill="#4A86C5"/><text x="55" y="65" text-anchor="middle" font-family="Arial" font-size="25" font-weight="900" fill="#fff">02</text>
+<text x="103" y="62" font-family="Arial,'Noto Sans KR',sans-serif" font-size="26" font-weight="900" fill="#113A67">개인카드를 썼다면 증빙을 남겨두세요</text>
+<text x="103" y="92" font-family="Arial,'Noto Sans KR',sans-serif" font-size="14" font-weight="600" fill="#557488">결제 내역과 사용 목적을 같이 보관하면 신고할 때 훨씬 수월합니다.</text>
+<g>
+<rect x="37" y="132" width="162" height="190" rx="22" fill="#fff" stroke="#D8E4EF"/>
+<rect x="219" y="132" width="162" height="190" rx="22" fill="#fff" stroke="#D8E4EF"/>
+<rect x="401" y="132" width="162" height="190" rx="22" fill="#fff" stroke="#D8E4EF"/>
+</g>
+<g transform="translate(70 161)">
+<rect width="95" height="85" rx="8" fill="#EEF3F7" transform="rotate(-5 47 42)"/>
+<text x="47" y="28" text-anchor="middle" font-family="Arial,'Noto Sans KR',sans-serif" font-size="13" font-weight="800" fill="#23485F">카드매출전표</text>
+<line x1="20" y1="43" x2="75" y2="43" stroke="#ABBBC8" stroke-width="4"/><line x1="20" y1="56" x2="67" y2="56" stroke="#ABBBC8" stroke-width="4"/>
+</g>
+<text x="118" y="278" text-anchor="middle" font-family="Arial,'Noto Sans KR',sans-serif" font-size="16" font-weight="900" fill="#244C67">카드전표</text>
+<text x="118" y="301" text-anchor="middle" font-family="Arial,'Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#6F8797">결제일·가맹점·금액 확인</text>
+<g transform="translate(245 155)">
+<rect x="0" y="10" width="76" height="94" rx="7" fill="#EEF3F7" transform="rotate(-4 38 57)"/>
+<rect x="45" y="26" width="78" height="86" rx="7" fill="#F9FBFD" transform="rotate(5 84 69)"/>
+<text x="38" y="34" text-anchor="middle" font-family="Arial,'Noto Sans KR',sans-serif" font-size="11" font-weight="800" fill="#23485F">세금계산서</text>
+<text x="83" y="53" text-anchor="middle" font-family="Arial,'Noto Sans KR',sans-serif" font-size="11" font-weight="800" fill="#23485F">현금영수증</text>
+</g>
+<text x="300" y="278" text-anchor="middle" font-family="Arial,'Noto Sans KR',sans-serif" font-size="16" font-weight="900" fill="#244C67">적격증빙</text>
+<text x="300" y="301" text-anchor="middle" font-family="Arial,'Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#6F8797">실제 받은 증빙 형태 확인</text>
+<g transform="translate(434 155)">
+<rect width="96" height="112" rx="12" fill="#FFF4D9" stroke="#E6C46F" stroke-width="2"/>
+<line x1="15" y1="31" x2="81" y2="31" stroke="#E1BE60" stroke-width="2"/>
+<text x="48" y="24" text-anchor="middle" font-family="Arial,'Noto Sans KR',sans-serif" font-size="13" font-weight="900" fill="#694F20">업무지출 메모</text>
+<g font-family="Arial,'Noto Sans KR',sans-serif" font-size="11" fill="#584A35">
+<text x="18" y="52">✓ 구매 목적</text><text x="18" y="70">✓ 사용 내용</text><text x="18" y="88">✓ 관련 업무</text><text x="18" y="106">✓ 거래처 정보</text>
+</g></g>
+<text x="482" y="286" text-anchor="middle" font-family="Arial,'Noto Sans KR',sans-serif" font-size="16" font-weight="900" fill="#244C67">사용 목적 메모</text>
+<text x="482" y="306" text-anchor="middle" font-family="Arial,'Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#6F8797">언제·왜 썼는지 기록</text>
+<rect x="68" y="346" width="464" height="38" rx="19" fill="#EAF5EF"/>
+<circle cx="92" cy="365" r="13" fill="#33A16E"/><path d="M85 365l5 5 9-12" fill="none" stroke="#fff" stroke-width="3.5"/>
+<text x="310" y="370" text-anchor="middle" font-family="Arial,'Noto Sans KR',sans-serif" font-size="14" font-weight="800" fill="#235B47">개인 지출과 사업 지출을 구분하고, 증빙을 꾸준히 보관하세요.</text>
+</svg>
