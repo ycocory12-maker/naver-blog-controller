@@ -27,6 +27,30 @@ function loadJob() {
   if (job.publish_mode !== "draft_only") throw new Error("publish_mode_must_be_draft_only");
   if (job.images.length !== job.body_parts.length) throw new Error("image_body_mapping_mismatch");
   if (!job.footer_image) throw new Error("footer_image_required");
+
+  const preflight = job.preflight || {};
+  const normalizedBody = [job.intro_part || "", ...(job.body_parts || [])]
+    .join("\n")
+    .replace(/[\s\u200B\uFEFF]/g, "");
+  const minChars = Number(preflight.min_normalized_chars || 0);
+  const minTags = Number(preflight.min_tags || 0);
+  const requiredImages = Number(preflight.required_image_count || job.images.length);
+
+  out("preflight_content_chars", normalizedBody.length);
+  out("preflight_tags_count", Array.isArray(job.tags) ? job.tags.length : 0);
+  out("preflight_images_count", job.images.length);
+  out("preflight_main_keyword", job.main_keyword || "");
+  out("preflight_image_source", job.image_source || "");
+
+  if (minChars && normalizedBody.length < minChars) throw new Error("preflight_content_too_short");
+  if (minTags && (!Array.isArray(job.tags) || job.tags.length < minTags)) throw new Error("preflight_tags_missing");
+  if (requiredImages && job.images.length !== requiredImages) throw new Error("preflight_image_count_failed");
+  if (preflight.require_main_keyword && (!job.main_keyword || !job.title.includes(job.main_keyword))) {
+    throw new Error("preflight_main_keyword_missing");
+  }
+  if (preflight.require_generated_images && job.image_source !== "WORK3_imagegen") {
+    throw new Error("preflight_generated_images_missing");
+  }
   for (const image of [...job.images, job.footer_image]) {
     const full = path.join(ROOT, image);
     if (!fs.existsSync(full)) throw new Error(`image_missing:${image}`);
@@ -787,6 +811,11 @@ async function visibleFirst(locator) {
 }
 
 async function prepareUploadImage(page, absolutePath, index) {
+  const runtimeOverride = path.join("/tmp", `work4-runtime-${index}.jpg`);
+  if (index <= 4 && fs.existsSync(runtimeOverride)) {
+    out(`image_${index}_runtime_work3_override`, true);
+    return runtimeOverride;
+  }
   if (path.extname(absolutePath).toLowerCase() !== ".svg") return absolutePath;
 
   const svg = fs.readFileSync(absolutePath, "utf8");
@@ -1058,8 +1087,70 @@ async function runJob() {
   }
 }
 
+function readJsonRequest(req, maxBytes = 8 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        reject(new Error("payload_too_large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); }
+      catch (_) { reject(new Error("invalid_json")); }
+    });
+    req.on("error", reject);
+  });
+}
+
+async function handleWork3Upload(req, res) {
+  const token = process.env.WORK4_UPLOAD_TOKEN || "";
+  if (!token || req.headers["x-work4-token"] !== token) {
+    res.statusCode = 403;
+    res.end(JSON.stringify({ error: "forbidden" }));
+    return;
+  }
+
+  try {
+    const payload = await readJsonRequest(req);
+    if (!payload || !Array.isArray(payload.images) || payload.images.length !== 4) {
+      throw new Error("four_work3_images_required");
+    }
+
+    for (let i = 0; i < payload.images.length; i += 1) {
+      const encoded = payload.images[i];
+      if (typeof encoded !== "string") throw new Error(`invalid_work3_image_${i + 1}`);
+      const buffer = Buffer.from(encoded, "base64");
+      if (buffer.length < 10000 || buffer.length > 2 * 1024 * 1024) {
+        throw new Error(`invalid_work3_image_size_${i + 1}`);
+      }
+      if (!(buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff)) {
+        throw new Error(`work3_image_not_jpeg_${i + 1}`);
+      }
+      fs.writeFileSync(path.join("/tmp", `work4-runtime-${i + 1}.jpg`), buffer);
+      out(`work3_runtime_image_${i + 1}_received`, buffer.length);
+    }
+
+    res.statusCode = 202;
+    res.end(JSON.stringify({ ok: true, accepted: 4, action: "draft_run_started" }));
+    setImmediate(() => runJob().catch((error) => out("controller_error", error.message)));
+  } catch (error) {
+    res.statusCode = 400;
+    res.end(JSON.stringify({ error: error.message }));
+  }
+}
+
 const server = http.createServer((req, res) => {
   res.setHeader("content-type", "application/json; charset=utf-8");
+  if (req.method === "POST" && req.url === "/work4/work3-upload") {
+    handleWork3Upload(req, res);
+    return;
+  }
   if (req.url === "/health") {
     res.end(JSON.stringify({ ok: true, lastResult }));
     return;
