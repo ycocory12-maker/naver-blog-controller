@@ -68,6 +68,42 @@ async function getVersion() {
   throw new Error("cdp_version_failed");
 }
 
+function getCdpTargetsOnce() {
+  return new Promise((resolve, reject) => {
+    const req = http.get({
+      hostname: "naver-chromium.railway.internal",
+      port: 9222,
+      path: "/json/list",
+      headers: { Host: "localhost:9222" },
+    }, (res) => {
+      let data = "";
+      res.on("data", (chunk) => { data += chunk; });
+      res.on("end", () => {
+        try { resolve(JSON.parse(data)); } catch (error) { reject(error); }
+      });
+    });
+    req.setTimeout(5000, () => req.destroy(new Error("target_list_timeout")));
+    req.on("error", reject);
+  });
+}
+
+async function inspectCdpTargets() {
+  try {
+    const targets = await getCdpTargetsOnce();
+    out("cdp_target_count", Array.isArray(targets) ? targets.length : -1);
+    if (Array.isArray(targets)) {
+      const summary = targets.slice(0, 20).map((target) => {
+        let host = "";
+        try { host = new URL(target.url || "about:blank").hostname; } catch (_) {}
+        return { type: target.type || "", host, isNaver: /naver\.com$/i.test(host) || /\.naver\.com$/i.test(host) };
+      });
+      out("cdp_target_summary", summary);
+    }
+  } catch (error) {
+    out("cdp_target_list_error", error.message);
+  }
+}
+
 async function connectBrowserOverCdp(wsUrl) {
   const endpoints = [
     { label: "ws", url: wsUrl },
@@ -767,6 +803,7 @@ async function runJob() {
   lastResult = result;
 
   const version = await getVersion();
+  await inspectCdpTargets();
   const wsUrl = `ws://naver-chromium.railway.internal:9222${new URL(version.webSocketDebuggerUrl).pathname}`;
   const browser = await connectBrowserOverCdp(wsUrl);
 
