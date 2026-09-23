@@ -622,6 +622,7 @@ async function prepareUploadImage(page, absolutePath, index) {
 }
 
 async function uploadImage(frame, page, absolutePath, index) {
+  const uploadPath = await prepareUploadImage(page, absolutePath, index);
   const before = await frame.locator(".se-component.se-image").count();
 
   // insertStructuredText가 남긴 현재 편집 커서를 유지해야 이미지가 정확한 토큰 위치에 들어간다.
