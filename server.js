@@ -471,6 +471,8 @@ async function applyBoldBlocks(frame, page, boldBlocks = []) {
     if (!target) throw new Error(`bold_target_missing:${blockIndex + 1}`);
 
     const selected = await target.evaluate((element, value) => {
+      const editable = element.querySelector(".se-module-text[contenteditable='true'], .se-module-text");
+      if (editable && typeof editable.focus === "function") editable.focus({ preventScroll: true });
       const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
       const chars = [];
       let compact = "";
@@ -507,11 +509,18 @@ async function applyBoldBlocks(frame, page, boldBlocks = []) {
     if (!selected) throw new Error(`bold_range_selection_failed:${blockIndex + 1}`);
     // Clicking the toolbar clears Smart Editor's live selection. Keep the range
     // active and apply the editor's native bold shortcut to that exact range.
-    await page.keyboard.press("Control+B");
+    await page.keyboard.press("Control+b");
     await page.waitForTimeout(300);
-    if (!await verifyBoldBlocks(frame, [expected])) {
-      throw new Error(`bold_shortcut_verification_failed:${blockIndex + 1}`);
+    let boldApplied = await verifyBoldBlocks(frame, [expected]);
+    if (!boldApplied) {
+      const button = await visibleFirst(frame.locator(".se-toolbar-item-bold button, button.se-toolbar-button.se-toolbar-button-bold, button[aria-label*='굵게'], button[title*='굵게']"));
+      if (button) {
+        await button.evaluate((element) => element.click());
+        await page.waitForTimeout(300);
+        boldApplied = await verifyBoldBlocks(frame, [expected]);
+      }
     }
+    if (!boldApplied) throw new Error(`bold_shortcut_verification_failed:${blockIndex + 1}`);
     out(`bold_block_${blockIndex + 1}_postprocessed`, true);
   }
 
