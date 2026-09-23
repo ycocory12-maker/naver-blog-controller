@@ -588,36 +588,17 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
   const target = bodyBlocks.nth(count - 1);
   await target.scrollIntoViewIfNeeded();
   await target.click();
+  await setBoldToolbarState(frame, page, false);
+  await target.click();
+  await page.keyboard.press("Control+End");
 
-  const normalize = (value) => (value || "").replace(/[\s\u200B\uFEFF]/g, "");
-  const boldSet = new Set((boldBlocks || []).map(normalize));
   const lines = text
     .trim()
     .split("\n")
     .map((line) => line.replace(/^[-*•]\s+/, "• "));
 
-  await setBoldToolbarState(frame, page, false);
-  await target.click();
-  await page.keyboard.press("Control+End");
-
   for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    const shouldBold = line.length > 0 && boldSet.has(normalize(line));
-
-    if (shouldBold) {
-      await setBoldToolbarState(frame, page, true);
-      await target.click();
-      await page.keyboard.press("Control+End");
-    }
-
-    if (line.length) await page.keyboard.insertText(line);
-
-    if (shouldBold) {
-      await setBoldToolbarState(frame, page, false);
-      await target.click();
-      await page.keyboard.press("Control+End");
-    }
-
+    if (lines[i].length) await page.keyboard.insertText(lines[i]);
     if (i < lines.length - 1) await page.keyboard.press("Enter");
   }
   await page.waitForTimeout(500);
@@ -625,6 +606,10 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
 
 async function applyBoldBlocks(frame, page, boldBlocks = []) {
   const normalize = (value) => (value || "").replace(/[\s\u200B\uFEFF]/g, "");
+  const boldButton = await visibleFirst(
+    frame.locator(".se-toolbar-item-bold button, button.se-toolbar-button.se-toolbar-button-bold, button[aria-label*='굵게'], button[title*='굵게']")
+  );
+  if (!boldButton) throw new Error("bold_toolbar_missing");
 
   for (let blockIndex = boldBlocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
     const expected = boldBlocks[blockIndex];
@@ -637,41 +622,39 @@ async function applyBoldBlocks(frame, page, boldBlocks = []) {
       const candidate = paragraphs.nth(i);
       if (!await candidate.isVisible().catch(() => false)) continue;
       const text = await candidate.innerText().catch(() => "");
-      if (normalize(text) === wanted) {
+      if (normalize(text).includes(wanted)) {
         target = candidate;
         break;
       }
     }
-
     if (!target) throw new Error(`bold_paragraph_missing:${blockIndex + 1}`);
 
     await target.scrollIntoViewIfNeeded();
-    await target.click({ clickCount: 3, delay: 90 });
+    await target.click({ clickCount: 3, delay: 80 });
     await page.waitForTimeout(250);
 
-    let selectedText = await frame.evaluate(() => window.getSelection()?.toString() || "").catch(() => "");
-    out(`bold_block_${blockIndex + 1}_triple_selection`, selectedText);
-    let selectionOk = normalize(selectedText).includes(wanted);
+    const blockSelected = await target.evaluate((element) =>
+      element.classList.contains("se-is-text-paragraph-block-selected")
+    ).catch(() => false);
+    out(`bold_block_${blockIndex + 1}_block_selected`, blockSelected);
 
-    if (!selectionOk) {
-      // Fallback: click the paragraph, then select from paragraph end to start
-      // using native keyboard movement so Smart Editor owns the selection.
-      await target.click();
-      await page.keyboard.press("End");
-      await page.keyboard.press("Shift+Home");
+    if (!blockSelected) {
+      await target.click({ clickCount: 2, delay: 100 });
       await page.waitForTimeout(200);
-      selectedText = await frame.evaluate(() => window.getSelection()?.toString() || "").catch(() => "");
-      out(`bold_block_${blockIndex + 1}_keyboard_selection`, selectedText);
-      selectionOk = normalize(selectedText).includes(wanted);
     }
 
-    if (!selectionOk) throw new Error(`bold_native_selection_failed:${blockIndex + 1}`);
+    const selectedAfterRetry = await target.evaluate((element) =>
+      element.classList.contains("se-is-text-paragraph-block-selected")
+    ).catch(() => false);
+    if (!blockSelected && !selectedAfterRetry) {
+      throw new Error(`bold_block_selection_failed:${blockIndex + 1}`);
+    }
 
-    await page.keyboard.press("Control+b");
-    await page.waitForTimeout(500);
+    await boldButton.click();
+    await page.waitForTimeout(450);
 
     const boldApplied = await verifyBoldBlocks(frame, [expected]);
-    if (!boldApplied) throw new Error(`bold_native_shortcut_failed:${blockIndex + 1}`);
+    if (!boldApplied) throw new Error(`bold_block_toolbar_failed:${blockIndex + 1}`);
     out(`bold_block_${blockIndex + 1}_postprocessed`, true);
   }
 
@@ -1038,6 +1021,8 @@ async function runJob() {
     if (!result.images_uploaded) throw new Error("image_verification_failed");
     if (!footerLastOk) throw new Error("footer_image_position_failed");
     if (!layoutOk) throw new Error("body_layout_verification_failed");
+
+    await applyBoldBlocks(frame, page, job.bold_blocks || []);
 
     const bodyAfterFormatting = (await frame.locator(".se-component.se-text").allInnerTexts()).join("\n");
     if (!bodyMatchesJob(bodyAfterFormatting, job)) throw new Error("body_changed_during_formatting");
