@@ -666,14 +666,80 @@ async function applyBoldBlocks(frame, page, boldBlocks = []) {
     await page.keyboard.press("Control+b");
     await page.waitForTimeout(300);
     let boldApplied = await verifyBoldBlocks(frame, [expected]);
+
+    if (!boldApplied) {
+      const domBold = await target.evaluate((element, value) => {
+        const normalize = (text) => (text || "").replace(/[\s\u200B\uFEFF]/g, "");
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+        const chars = [];
+        let compact = "";
+        let node = walker.nextNode();
+        while (node) {
+          const content = node.textContent || "";
+          for (let offset = 0; offset < content.length; offset += 1) {
+            const char = content[offset];
+            if (!/[\s\u200B\uFEFF]/.test(char)) {
+              compact += char;
+              chars.push({ node, offset });
+            }
+          }
+          node = walker.nextNode();
+        }
+
+        const wanted = normalize(value);
+        const start = compact.indexOf(wanted);
+        if (start < 0 || !wanted.length) return false;
+        const first = chars[start];
+        const last = chars[start + wanted.length - 1];
+        if (!first || !last) return false;
+
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.setStart(first.node, first.offset);
+        range.setEnd(last.node, last.offset + 1);
+        selection.removeAllRanges();
+        selection.addRange(range);
+
+        let ok = false;
+        try {
+          ok = document.execCommand("bold", false, null);
+        } catch (_) {}
+
+        const editable = element.querySelector(".se-module-text[contenteditable='true'], .se-module-text");
+        if (editable) {
+          try {
+            editable.dispatchEvent(new InputEvent("input", {
+              bubbles: true,
+              inputType: "formatBold",
+              data: null,
+            }));
+          } catch (_) {
+            editable.dispatchEvent(new Event("input", { bubbles: true }));
+          }
+        }
+        return ok;
+      }, expected).catch(() => false);
+      out(`bold_block_${blockIndex + 1}_dom_exec`, domBold);
+      await page.waitForTimeout(400);
+      boldApplied = await verifyBoldBlocks(frame, [expected]);
+    }
+
     if (!boldApplied) {
       const button = await visibleFirst(frame.locator(".se-toolbar-item-bold button, button.se-toolbar-button.se-toolbar-button-bold, button[aria-label*='굵게'], button[title*='굵게']"));
       if (button) {
-        await button.evaluate((element) => element.click());
-        await page.waitForTimeout(300);
+        const toolbarApplied = await button.evaluate((element) => {
+          const events = ["pointerdown", "mousedown", "pointerup", "mouseup", "click"];
+          for (const type of events) {
+            element.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+          }
+          return true;
+        }).catch(() => false);
+        out(`bold_block_${blockIndex + 1}_toolbar_dispatch`, toolbarApplied);
+        await page.waitForTimeout(400);
         boldApplied = await verifyBoldBlocks(frame, [expected]);
       }
     }
+
     if (!boldApplied) throw new Error(`bold_shortcut_verification_failed:${blockIndex + 1}`);
     out(`bold_block_${blockIndex + 1}_postprocessed`, true);
   }
