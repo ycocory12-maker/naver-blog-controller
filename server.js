@@ -1175,6 +1175,34 @@ async function handleWork3Chunk(req, res, url) {
   }
 }
 
+async function hydrateRuntimeWork3ImagesFromEnv() {
+  const count = Number(process.env.WORK3_SHEET_CHUNKS || 0);
+  if (!Number.isInteger(count) || count <= 0) return false;
+  if (count > 20) throw new Error("work3_env_chunk_count_invalid");
+
+  const parts = [];
+  for (let i = 0; i < count; i += 1) {
+    const key = `WORK3_SHEET_${String(i).padStart(2, "0")}`;
+    const value = process.env[key] || "";
+    if (!value) throw new Error(`work3_env_chunk_missing:${key}`);
+    parts.push(value);
+  }
+
+  const buffer = Buffer.from(parts.join(""), "base64");
+  if (buffer.length < 50000 || buffer.length > 3 * 1024 * 1024) {
+    throw new Error("invalid_work3_env_sheet_size");
+  }
+  if (!(buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff)) {
+    throw new Error("work3_env_sheet_not_jpeg");
+  }
+
+  const sheetPath = path.join("/tmp", "work3-sheet-env.jpg");
+  fs.writeFileSync(sheetPath, buffer);
+  await finalizeWork3Sheet(sheetPath);
+  out("work3_env_sheet_hydrated", buffer.length);
+  return true;
+}
+
 async function handleWork3Upload(req, res) {
   const token = process.env.WORK4_UPLOAD_TOKEN || "";
   if (!token || req.headers["x-work4-token"] !== token) {
@@ -1233,8 +1261,16 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => out("controller_listening", PORT));
 
-if (RUN_ON_BOOT) {
-  runJob().catch((error) => out("controller_error", error.message));
-} else {
-  out("run_on_boot", false);
-}
+(async () => {
+  try {
+    const hydrated = await hydrateRuntimeWork3ImagesFromEnv();
+    if (RUN_ON_BOOT || hydrated) {
+      out("run_trigger", hydrated ? "work3_env_sheet" : "run_on_boot");
+      runJob().catch((error) => out("controller_error", error.message));
+    } else {
+      out("run_on_boot", false);
+    }
+  } catch (error) {
+    out("controller_error", error.message);
+  }
+})();
