@@ -714,7 +714,15 @@ async function runJob() {
     }
     result.logged_in = true;
 
-    let frame = await findEditorFrame(page);
+    let frame;
+    try {
+      frame = await findEditorFrame(page, 15000);
+    } catch (error) {
+      out("editor_frame_retry_after_reload", true);
+      await page.reload({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(3000);
+      frame = await findEditorFrame(page, 25000);
+    }
     result.editor_opened = true;
 
     const fingerprint = crypto.createHash("sha256").update(JSON.stringify({
