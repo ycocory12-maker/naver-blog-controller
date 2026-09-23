@@ -588,17 +588,36 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
   const target = bodyBlocks.nth(count - 1);
   await target.scrollIntoViewIfNeeded();
   await target.click();
-  await setBoldToolbarState(frame, page, false);
-  await target.focus();
-  await page.keyboard.press("Control+End");
 
+  const normalize = (value) => (value || "").replace(/[\s\u200B\uFEFF]/g, "");
+  const boldSet = new Set((boldBlocks || []).map(normalize));
   const lines = text
     .trim()
     .split("\n")
     .map((line) => line.replace(/^[-*•]\s+/, "• "));
 
+  await setBoldToolbarState(frame, page, false);
+  await target.click();
+  await page.keyboard.press("Control+End");
+
   for (let i = 0; i < lines.length; i += 1) {
-    if (lines[i].length) await page.keyboard.insertText(lines[i]);
+    const line = lines[i];
+    const shouldBold = line.length > 0 && boldSet.has(normalize(line));
+
+    if (shouldBold) {
+      await setBoldToolbarState(frame, page, true);
+      await target.click();
+      await page.keyboard.press("Control+End");
+    }
+
+    if (line.length) await page.keyboard.insertText(line);
+
+    if (shouldBold) {
+      await setBoldToolbarState(frame, page, false);
+      await target.click();
+      await page.keyboard.press("Control+End");
+    }
+
     if (i < lines.length - 1) await page.keyboard.press("Enter");
   }
   await page.waitForTimeout(500);
@@ -950,25 +969,7 @@ async function runJob() {
         if (existingBodyOk && existingImagesOk) {
           const existingFooterOk = await footerImageIsLast(frame);
           const existingLayoutOk = await layoutMatchesJob(frame, job);
-          let existingFormattingOk = await verifyBoldBlocks(frame, job.bold_blocks || []);
-
-          if (!existingFormattingOk && existingFooterOk && existingLayoutOk) {
-            out("existing_target_formatting_repair", true);
-            await applyBoldBlocks(frame, page, job.bold_blocks || []);
-            const bodyAfterRepair = (await frame.locator(".se-component.se-text").allInnerTexts()).join("\n");
-            if (!bodyMatchesJob(bodyAfterRepair, job)) throw new Error("body_changed_during_formatting_repair");
-            if (!await layoutMatchesJob(frame, job)) throw new Error("layout_changed_during_formatting_repair");
-            existingFormattingOk = await verifyBoldBlocks(frame, job.bold_blocks || []);
-
-            if (existingFormattingOk) {
-              const save = frame.locator("button.save_btn__FuUyN").first();
-              if (await save.count() !== 1) throw new Error("draft_save_button_missing_after_formatting_repair");
-              await save.click();
-              await page.waitForTimeout(3000);
-              out("draft_save_clicked_after_formatting_repair", true);
-            }
-          }
-
+          const existingFormattingOk = await verifyBoldBlocks(frame, job.bold_blocks || []);
           out("existing_target_footer", existingFooterOk);
           out("existing_target_layout", existingLayoutOk);
           out("existing_target_formatting", existingFormattingOk);
@@ -986,10 +987,12 @@ async function runJob() {
             return result;
           }
 
-          throw new Error("existing_target_formatting_incomplete");
+          await clearExistingBody(frame, page);
+          out("existing_target_formatting_rebuild", true);
+        } else {
+          await clearExistingBody(frame, page);
+          out("existing_target_incomplete_replaced", true);
         }
-        await clearExistingBody(frame, page);
-        out("existing_target_incomplete_replaced", true);
       }
       await handleRecoveryBeforeInput(frame, page);
       frame = await findEditorFrame(page);
@@ -1035,8 +1038,6 @@ async function runJob() {
     if (!result.images_uploaded) throw new Error("image_verification_failed");
     if (!footerLastOk) throw new Error("footer_image_position_failed");
     if (!layoutOk) throw new Error("body_layout_verification_failed");
-
-    await applyBoldBlocks(frame, page, job.bold_blocks || []);
 
     const bodyAfterFormatting = (await frame.locator(".se-component.se-text").allInnerTexts()).join("\n");
     if (!bodyMatchesJob(bodyAfterFormatting, job)) throw new Error("body_changed_during_formatting");
