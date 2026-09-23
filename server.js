@@ -468,8 +468,6 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
   const target = bodyBlocks.nth(count - 1);
   await target.scrollIntoViewIfNeeded();
   await target.click();
-  await target.focus();
-  await page.keyboard.press("Control+End");
 
   const normalize = (value) => (value || "").replace(/[\s\u200B\uFEFF]/g, "");
   const boldSet = new Set((boldBlocks || []).map(normalize));
@@ -479,24 +477,16 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
     .map((line) => line.replace(/^[-*•]\s+/, "• "));
 
   await setBoldToolbarState(frame, page, false);
+  await target.focus();
+  await page.keyboard.press("Control+End");
 
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
     const shouldBold = line.length > 0 && boldSet.has(normalize(line));
 
-    if (shouldBold) {
-      await setBoldToolbarState(frame, page, true);
-      await target.focus();
-      await page.keyboard.press("Control+End");
-    }
-
+    if (shouldBold) await page.keyboard.press("Control+b");
     if (line.length) await page.keyboard.insertText(line);
-
-    if (shouldBold) {
-      await setBoldToolbarState(frame, page, false);
-      await target.focus();
-      await page.keyboard.press("Control+End");
-    }
+    if (shouldBold) await page.keyboard.press("Control+b");
 
     if (i < lines.length - 1) await page.keyboard.press("Enter");
   }
