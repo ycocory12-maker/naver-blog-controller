@@ -605,142 +605,54 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
 }
 
 async function applyBoldBlocks(frame, page, boldBlocks = []) {
+  const normalize = (value) => (value || "").replace(/[\s\u200B\uFEFF]/g, "");
+
   for (let blockIndex = boldBlocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
     const expected = boldBlocks[blockIndex];
-    const paragraphs = frame.locator(".se-component.se-text");
+    const wanted = normalize(expected);
+    const paragraphs = frame.locator(".se-component.se-text .se-text-paragraph");
     const count = await paragraphs.count();
     let target = null;
+
     for (let i = 0; i < count; i += 1) {
       const candidate = paragraphs.nth(i);
       if (!await candidate.isVisible().catch(() => false)) continue;
-      const contains = await candidate.evaluate((element, value) => {
-        const normalize = (text) => (text || "").replace(/[\s\u200B\uFEFF]/g, "");
-        return normalize(element.textContent).includes(normalize(value));
-      }, expected).catch(() => false);
-      if (contains) {
+      const text = await candidate.innerText().catch(() => "");
+      if (normalize(text) === wanted) {
         target = candidate;
         break;
       }
     }
-    if (!target) throw new Error(`bold_target_missing:${blockIndex + 1}`);
 
-    const selected = await target.evaluate((element, value) => {
-      const editable = element.querySelector(".se-module-text[contenteditable='true'], .se-module-text");
-      if (editable && typeof editable.focus === "function") editable.focus({ preventScroll: true });
-      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-      const chars = [];
-      let compact = "";
-      let node = walker.nextNode();
-      while (node) {
-        const content = node.textContent || "";
-        for (let offset = 0; offset < content.length; offset += 1) {
-          const char = content[offset];
-          if (!/[\s\u200B\uFEFF]/.test(char)) {
-            compact += char;
-            chars.push({ node, offset });
-          }
-        }
-        node = walker.nextNode();
-      }
+    if (!target) throw new Error(`bold_paragraph_missing:${blockIndex + 1}`);
 
-      const wanted = value.replace(/[\s\u200B\uFEFF]/g, "");
-      const start = compact.indexOf(wanted);
-      if (start < 0 || !wanted.length) return false;
-      const first = chars[start];
-      const last = chars[start + wanted.length - 1];
-      if (!first || !last) return false;
+    await target.scrollIntoViewIfNeeded();
+    await target.click({ clickCount: 3, delay: 90 });
+    await page.waitForTimeout(250);
 
-      const selection = window.getSelection();
-      const range = document.createRange();
-      range.setStart(first.node, first.offset);
-      range.setEnd(last.node, last.offset + 1);
-      selection.removeAllRanges();
-      selection.addRange(range);
-      document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
-      return selection.toString().replace(/[\s\u200B\uFEFF]/g, "") === wanted;
-    }, expected).catch(() => false);
+    let selectedText = await frame.evaluate(() => window.getSelection()?.toString() || "").catch(() => "");
+    out(`bold_block_${blockIndex + 1}_triple_selection`, selectedText);
+    let selectionOk = normalize(selectedText).includes(wanted);
 
-    if (!selected) throw new Error(`bold_range_selection_failed:${blockIndex + 1}`);
-    // Clicking the toolbar clears Smart Editor's live selection. Keep the range
-    // active and apply the editor's native bold shortcut to that exact range.
+    if (!selectionOk) {
+      // Fallback: click the paragraph, then select from paragraph end to start
+      // using native keyboard movement so Smart Editor owns the selection.
+      await target.click();
+      await page.keyboard.press("End");
+      await page.keyboard.press("Shift+Home");
+      await page.waitForTimeout(200);
+      selectedText = await frame.evaluate(() => window.getSelection()?.toString() || "").catch(() => "");
+      out(`bold_block_${blockIndex + 1}_keyboard_selection`, selectedText);
+      selectionOk = normalize(selectedText).includes(wanted);
+    }
+
+    if (!selectionOk) throw new Error(`bold_native_selection_failed:${blockIndex + 1}`);
+
     await page.keyboard.press("Control+b");
-    await page.waitForTimeout(300);
-    let boldApplied = await verifyBoldBlocks(frame, [expected]);
+    await page.waitForTimeout(500);
 
-    if (!boldApplied) {
-      const domBold = await target.evaluate((element, value) => {
-        const normalize = (text) => (text || "").replace(/[\s\u200B\uFEFF]/g, "");
-        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-        const chars = [];
-        let compact = "";
-        let node = walker.nextNode();
-        while (node) {
-          const content = node.textContent || "";
-          for (let offset = 0; offset < content.length; offset += 1) {
-            const char = content[offset];
-            if (!/[\s\u200B\uFEFF]/.test(char)) {
-              compact += char;
-              chars.push({ node, offset });
-            }
-          }
-          node = walker.nextNode();
-        }
-
-        const wanted = normalize(value);
-        const start = compact.indexOf(wanted);
-        if (start < 0 || !wanted.length) return false;
-        const first = chars[start];
-        const last = chars[start + wanted.length - 1];
-        if (!first || !last) return false;
-
-        const selection = window.getSelection();
-        const range = document.createRange();
-        range.setStart(first.node, first.offset);
-        range.setEnd(last.node, last.offset + 1);
-        selection.removeAllRanges();
-        selection.addRange(range);
-
-        let ok = false;
-        try {
-          ok = document.execCommand("bold", false, null);
-        } catch (_) {}
-
-        const editable = element.querySelector(".se-module-text[contenteditable='true'], .se-module-text");
-        if (editable) {
-          try {
-            editable.dispatchEvent(new InputEvent("input", {
-              bubbles: true,
-              inputType: "formatBold",
-              data: null,
-            }));
-          } catch (_) {
-            editable.dispatchEvent(new Event("input", { bubbles: true }));
-          }
-        }
-        return ok;
-      }, expected).catch(() => false);
-      out(`bold_block_${blockIndex + 1}_dom_exec`, domBold);
-      await page.waitForTimeout(400);
-      boldApplied = await verifyBoldBlocks(frame, [expected]);
-    }
-
-    if (!boldApplied) {
-      const button = await visibleFirst(frame.locator(".se-toolbar-item-bold button, button.se-toolbar-button.se-toolbar-button-bold, button[aria-label*='굵게'], button[title*='굵게']"));
-      if (button) {
-        const toolbarApplied = await button.evaluate((element) => {
-          const events = ["pointerdown", "mousedown", "pointerup", "mouseup", "click"];
-          for (const type of events) {
-            element.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
-          }
-          return true;
-        }).catch(() => false);
-        out(`bold_block_${blockIndex + 1}_toolbar_dispatch`, toolbarApplied);
-        await page.waitForTimeout(400);
-        boldApplied = await verifyBoldBlocks(frame, [expected]);
-      }
-    }
-
-    if (!boldApplied) throw new Error(`bold_shortcut_verification_failed:${blockIndex + 1}`);
+    const boldApplied = await verifyBoldBlocks(frame, [expected]);
+    if (!boldApplied) throw new Error(`bold_native_shortcut_failed:${blockIndex + 1}`);
     out(`bold_block_${blockIndex + 1}_postprocessed`, true);
   }
 
@@ -748,7 +660,7 @@ async function applyBoldBlocks(frame, page, boldBlocks = []) {
   const count = await bodyBlocks.count();
   if (count) {
     const last = bodyBlocks.nth(count - 1);
-    await last.focus();
+    await last.click();
     await page.keyboard.press("Control+End");
   }
 }
