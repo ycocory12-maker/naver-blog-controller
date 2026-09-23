@@ -69,20 +69,27 @@ async function getVersion() {
 }
 
 async function connectBrowserOverCdp(wsUrl) {
+  const endpoints = [
+    { label: "ws", url: wsUrl },
+    { label: "http", url: "http://naver-chromium.railway.internal:9222" },
+  ];
   let lastError;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      out("cdp_connect_attempt", attempt);
-      const browser = await chromium.connectOverCDP(wsUrl, {
-        headers: { Host: "localhost:9222" },
-        timeout: 20000,
-      });
-      out("cdp_connect_ok", true);
-      return browser;
-    } catch (error) {
-      lastError = error;
-      out("cdp_connect_error", error.message.slice(0, 160));
-      if (attempt < 3) await sleep(1500);
+  for (const endpoint of endpoints) {
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        out("cdp_connect_attempt", `${endpoint.label}:${attempt}`);
+        const browser = await chromium.connectOverCDP(endpoint.url, {
+          headers: { Host: "localhost:9222" },
+          timeout: 30000,
+        });
+        out("cdp_connect_mode", endpoint.label);
+        out("cdp_connect_ok", true);
+        return browser;
+      } catch (error) {
+        lastError = error;
+        out("cdp_connect_error", `${endpoint.label}:${error.message.slice(0, 160)}`);
+        await sleep(1200);
+      }
     }
   }
   throw lastError || new Error("cdp_connect_failed");
