@@ -6,7 +6,7 @@
     "병원 인테리어 비용, 개원한 해에 전부 비용처리할 수 있을까"
   ],
   "publish_mode": "draft_only",
-  "replace_existing_draft": true,
+  "replace_existing_draft": false,
   "images": [
     "assets/001_대표.png",
     "assets/001_본문01.png",
