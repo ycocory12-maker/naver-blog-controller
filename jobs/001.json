@@ -48,8 +48,8 @@
     "따라서 개인카드 사용분을 정리할 때는 ‘비용으로 볼 수 있는가’와 ‘부가가치세까지 공제할 수 있는가’를 구분해서 확인하는 것이 안전합니다."
   ],
   "draft_lookup_titles": [
-    "개인카드로 결제한 사업비, 비용처리에서 빠지는 걸까?",
-    "개인카드로 결제한 사업비, 비용처리에서 빠지는 걸까"
+    "개인사업자 개인카드 비용처리 가능할까? 사업용 신용카드 등록까지 정리",
+    "개인카드로 결제한 사업비, 비용처리에서 빠지는 걸까?"
   ],
   "main_keyword": "개인사업자 개인카드 비용처리",
   "sub_keywords": [
@@ -69,5 +69,6 @@
     "required_image_count": 4,
     "require_main_keyword": true,
     "require_generated_images": true
-  }
+  },
+  "image_source": "WORK3_imagegen"
 }
