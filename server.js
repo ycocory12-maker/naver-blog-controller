@@ -838,7 +838,8 @@ async function runJob() {
           out("work4_result", result);
           return result;
         }
-        throw new Error("existing_target_incomplete");
+        await clearExistingBody(frame, page);
+        out("existing_target_incomplete_replaced", true);
       }
       await handleRecoveryBeforeInput(frame, page);
       frame = await findEditorFrame(page);
@@ -867,8 +868,6 @@ async function runJob() {
       const tagLine = job.tags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ");
       await insertStructuredText(frame, page, `\n\n${tagLine}`, job.bold_blocks || []);
     }
-
-    await applyBoldBlocks(frame, page, job.bold_blocks || []);
 
     // 모든 글의 마지막에는 사무실 연락처 이미지를 고정한다.
     await uploadImage(frame, page, path.join(ROOT, job.footer_image), job.images.length + 1);
