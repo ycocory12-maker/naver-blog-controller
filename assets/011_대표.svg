@@ -1,1 +1,40 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600"><rect width="100%" height="100%" rx="32" fill="#eef9f1"/><text x="60" y="120" font-size="54" font-weight="700" fill="#123">개인카드 사업비,</text><text x="60" y="190" font-size="54" font-weight="700" fill="#087b4b">비용처리 가능할까?</text><rect x="60" y="260" width="780" height="190" rx="28" fill="white"/><text x="100" y="330" font-size="30" fill="#123">결제수단보다 중요한 것은</text><text x="100" y="385" font-size="36" font-weight="700" fill="#087b4b">사업 관련성 + 증빙</text><text x="60" y="535" font-size="24" fill="#456">개인카드라도 실제 사업을 위한 지출이라면 필요경비를 검토할 수 있습니다.</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#F1FBF4"/><stop offset="1" stop-color="#E8F4FF"/></linearGradient>
+  <filter id="sh"><feDropShadow dx="0" dy="5" stdDeviation="8" flood-color="#234" flood-opacity=".10"/></filter>
+</defs>
+<rect width="600" height="400" rx="28" fill="url(#bg)"/>
+<circle cx="520" cy="60" r="70" fill="#D9F4DF"/><circle cx="70" cy="350" r="62" fill="#DCEEFF"/>
+<text x="42" y="74" font-family="Arial,'Noto Sans KR',sans-serif" font-size="23" font-weight="800" fill="#113A67">개인사업자</text>
+<text x="42" y="112" font-family="Arial,'Noto Sans KR',sans-serif" font-size="34" font-weight="900" fill="#0D7A55">개인카드 비용처리,</text>
+<text x="42" y="151" font-family="Arial,'Noto Sans KR',sans-serif" font-size="34" font-weight="900" fill="#113A67">가능할까?</text>
+<rect x="42" y="172" width="252" height="42" rx="21" fill="#D8F1DE"/>
+<text x="168" y="199" text-anchor="middle" font-family="Arial,'Noto Sans KR',sans-serif" font-size="17" font-weight="800" fill="#166A4B">사업 관련성 + 증빙이 핵심</text>
+<g filter="url(#sh)">
+  <rect x="332" y="68" width="184" height="116" rx="18" fill="#2A4D70" transform="rotate(-8 424 126)"/>
+  <rect x="352" y="93" width="38" height="25" rx="4" fill="#F3CE68" transform="rotate(-8 371 105)"/>
+  <line x1="401" y1="102" x2="478" y2="91" stroke="#C9D9E8" stroke-width="7" stroke-linecap="round"/>
+  <line x1="401" y1="123" x2="464" y2="114" stroke="#9AB7D2" stroke-width="6" stroke-linecap="round"/>
+</g>
+<g filter="url(#sh)">
+  <rect x="434" y="150" width="108" height="142" rx="12" fill="#fff" transform="rotate(8 488 221)"/>
+  <text x="488" y="180" text-anchor="middle" font-family="Arial,'Noto Sans KR',sans-serif" font-size="16" font-weight="800" fill="#2A4056" transform="rotate(8 488 180)">영수증</text>
+  <line x1="458" y1="199" x2="516" y2="207" stroke="#CBD3DB" stroke-width="5" stroke-linecap="round"/>
+  <line x1="455" y1="219" x2="511" y2="227" stroke="#CBD3DB" stroke-width="5" stroke-linecap="round"/>
+  <line x1="452" y1="239" x2="503" y2="246" stroke="#CBD3DB" stroke-width="5" stroke-linecap="round"/>
+</g>
+<g>
+  <rect x="48" y="250" width="250" height="100" rx="20" fill="#fff" opacity=".92"/>
+  <circle cx="79" cy="280" r="15" fill="#34A46F"/><path d="M72 280l6 6 10-14" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="105" y="285" font-family="Arial,'Noto Sans KR',sans-serif" font-size="16" font-weight="800" fill="#23485F">개인카드라고 자동 제외 X</text>
+  <circle cx="79" cy="320" r="15" fill="#4F8BC9"/><path d="M72 320l6 6 10-14" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="105" y="325" font-family="Arial,'Noto Sans KR',sans-serif" font-size="16" font-weight="800" fill="#23485F">사용 목적과 증빙을 함께 확인</text>
+</g>
+<g transform="translate(335 260)">
+  <rect x="0" y="45" width="160" height="48" rx="9" fill="#8D603D"/>
+  <rect x="25" y="10" width="110" height="68" rx="10" fill="#C58A56"/>
+  <path d="M55 16c0-20 50-20 50 0" fill="none" stroke="#70472C" stroke-width="8"/>
+  <rect x="58" y="34" width="44" height="20" rx="5" fill="#E9C59F"/>
+</g>
+<text x="535" y="372" text-anchor="end" font-family="Arial,'Noto Sans KR',sans-serif" font-size="13" font-weight="700" fill="#6C8797">2026 개인사업자 세무 체크</text>
+</svg>
