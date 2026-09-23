@@ -1,1 +1,30 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600"><rect width="100%" height="100%" rx="32" fill="#f1faf4"/><text x="55" y="95" font-size="48" font-weight="700" fill="#123">01 개인카드라도</text><text x="55" y="155" font-size="48" font-weight="700" fill="#087b4b">사업 관련성이 핵심입니다</text><rect x="55" y="210" width="370" height="280" rx="24" fill="#fff"/><text x="85" y="260" font-size="28" font-weight="700" fill="#087b4b">✓ 사업 관련 지출</text><text x="85" y="315" font-size="24" fill="#234">사무용품 · 업무용 프로그램</text><text x="85" y="360" font-size="24" fill="#234">업무상 교통비 · 교육비</text><text x="85" y="405" font-size="24" fill="#234">업무 관련 식사·접대비 등</text><rect x="470" y="210" width="370" height="280" rx="24" fill="#fff5f2"/><text x="500" y="260" font-size="28" font-weight="700" fill="#c94b3c">✕ 개인적 지출</text><text x="500" y="315" font-size="24" fill="#234">개인 쇼핑 · 가족 생활비</text><text x="500" y="360" font-size="24" fill="#234">개인 여행 · 사적 식사 등</text><text x="55" y="550" font-size="25" fill="#123">카드 명의보다 실제 사용 목적을 확인하세요.</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400">
+<rect width="600" height="400" rx="28" fill="#F4FAFF"/>
+<circle cx="55" cy="55" r="32" fill="#1B9B72"/><text x="55" y="65" text-anchor="middle" font-family="Arial" font-size="25" font-weight="900" fill="#fff">01</text>
+<text x="103" y="62" font-family="Arial,'Noto Sans KR',sans-serif" font-size="27" font-weight="900" fill="#113A67">카드보다 중요한 건 지출의 성격</text>
+<text x="103" y="92" font-family="Arial,'Noto Sans KR',sans-serif" font-size="14" font-weight="600" fill="#557488">같은 개인카드 결제라도 사용 목적에 따라 판단이 달라집니다.</text>
+<rect x="38" y="122" width="250" height="215" rx="24" fill="#E3F6EA"/>
+<rect x="312" y="122" width="250" height="215" rx="24" fill="#FFF0ED"/>
+<circle cx="76" cy="159" r="21" fill="#2FA36D"/><path d="M65 160l8 8 16-21" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="112" y="168" font-family="Arial,'Noto Sans KR',sans-serif" font-size="21" font-weight="900" fill="#14684A">사업 관련 지출</text>
+<g fill="#fff">
+<rect x="56" y="196" width="64" height="70" rx="12"/><rect x="131" y="196" width="64" height="70" rx="12"/><rect x="206" y="196" width="64" height="70" rx="12"/>
+</g>
+<g stroke="#3B78A8" fill="none" stroke-width="4">
+<rect x="70" y="211" width="36" height="25" rx="3"/><line x1="67" y1="242" x2="109" y2="242"/>
+<path d="M145 232c7-18 29-18 36 0M151 232h25v13h-25z"/>
+<path d="M220 238h36l-5-18h-26z"/><circle cx="228" cy="246" r="4"/><circle cx="248" cy="246" r="4"/>
+</g>
+<text x="88" y="287" text-anchor="middle" font-family="Arial,'Noto Sans KR',sans-serif" font-size="12" font-weight="700" fill="#31576B">사무용품</text>
+<text x="163" y="287" text-anchor="middle" font-family="Arial,'Noto Sans KR',sans-serif" font-size="12" font-weight="700" fill="#31576B">업무 프로그램</text>
+<text x="238" y="287" text-anchor="middle" font-family="Arial,'Noto Sans KR',sans-serif" font-size="12" font-weight="700" fill="#31576B">업무 교통비</text>
+<circle cx="350" cy="159" r="21" fill="#EA665A"/><path d="M340 149l20 20M360 149l-20 20" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
+<text x="386" y="168" font-family="Arial,'Noto Sans KR',sans-serif" font-size="21" font-weight="900" fill="#8B3D34">개인 지출</text>
+<g fill="#fff"><rect x="337" y="196" width="90" height="70" rx="12"/><rect x="447" y="196" width="90" height="70" rx="12"/></g>
+<path d="M366 221h32l8 28h-48zM369 221c0-12 26-12 26 0" fill="#F1C065" stroke="#9E6B1E" stroke-width="3"/>
+<path d="M477 215v35M487 215v35M472 215c0 11 20 11 20 0M512 215v35M507 215c0 12 10 12 10 0" stroke="#6F554F" stroke-width="4" fill="none" stroke-linecap="round"/>
+<text x="382" y="287" text-anchor="middle" font-family="Arial,'Noto Sans KR',sans-serif" font-size="12" font-weight="700" fill="#744A44">개인 쇼핑</text>
+<text x="492" y="287" text-anchor="middle" font-family="Arial,'Noto Sans KR',sans-serif" font-size="12" font-weight="700" fill="#744A44">가족 외식</text>
+<rect x="87" y="352" width="426" height="34" rx="17" fill="#fff" stroke="#CDE3EE"/>
+<text x="300" y="374" text-anchor="middle" font-family="Arial,'Noto Sans KR',sans-serif" font-size="15" font-weight="800" fill="#23485F">사업과 직접 관련된 지출인지 확인하는 것이 첫 단계입니다.</text>
+</svg>
