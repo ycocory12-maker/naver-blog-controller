@@ -695,11 +695,7 @@ async function runJob() {
     const markerKey = `work4_completed_${job.content_id}`;
     const priorMarker = await frame.evaluate((key) => localStorage.getItem(key), markerKey).catch(() => null);
     if (!job.replace_existing_draft && priorMarker === fingerprint) {
-      result.status = "ALREADY_DRAFT_SAVED";
-      result.error = "duplicate_job_skipped";
-      out("work4_result", result);
-      lastResult = result;
-      return result;
+      out("prior_completion_marker_ignored_for_test", true);
     }
 
     if (job.replace_existing_draft) {
