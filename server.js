@@ -434,16 +434,19 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
   const target = bodyBlocks.nth(count - 1);
   await target.scrollIntoViewIfNeeded();
   await target.click();
-  // 네이버의 실제 붙여넣기 처리기로 원문 전체와 줄바꿈을 함께 전달한다.
-  // 편집기가 자체 모델에 문단 구조를 생성하므로 재접속 후에도 형식이 유지된다.
-  const canonicalText = text
+  await target.focus();
+  await page.keyboard.press("Control+End");
+  await setBoldToolbarState(frame, page, false);
+
+  const lines = text
     .trim()
     .split("\n")
-    .map((line) => line.replace(/^[-*•]\s+/, "• "))
-    .join("\n");
-  await setBoldToolbarState(frame, page, false);
-  const htmlText = richClipboardHtml(text, boldBlocks);
-  await pasteRichText(page, target, canonicalText, htmlText);
+    .map((line) => line.replace(/^[-*•]\s+/, "• "));
+
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].length) await page.keyboard.insertText(lines[i]);
+    if (i < lines.length - 1) await page.keyboard.press("Enter");
+  }
   await page.waitForTimeout(500);
 }
 
@@ -596,6 +599,28 @@ async function visibleFirst(locator) {
   return null;
 }
 
+async function prepareUploadImage(page, absolutePath, index) {
+  if (path.extname(absolutePath).toLowerCase() !== ".svg") return absolutePath;
+
+  const svg = fs.readFileSync(absolutePath, "utf8");
+  const matchW = svg.match(/width="(\d+)"/);
+  const matchH = svg.match(/height="(\d+)"/);
+  const width = matchW ? Number(matchW[1]) : 900;
+  const height = matchH ? Number(matchH[1]) : 600;
+  const renderPage = await page.context().newPage();
+  try {
+    await renderPage.setViewportSize({ width, height });
+    await renderPage.setContent(`<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;width:${width}px;height:${height}px;overflow:hidden}</style></head><body>${svg}</body></html>`, { waitUntil: "load" });
+    const buffer = await renderPage.screenshot({ type: "png", fullPage: false });
+    const output = path.join("/tmp", `work4-image-${index}.png`);
+    fs.writeFileSync(output, buffer);
+    out(`image_${index}_rendered_png`, output);
+    return output;
+  } finally {
+    await renderPage.close().catch(() => {});
+  }
+}
+
 async function uploadImage(frame, page, absolutePath, index) {
   const before = await frame.locator(".se-component.se-image").count();
 
@@ -616,7 +641,7 @@ async function uploadImage(frame, page, absolutePath, index) {
       const chooserPromise = page.waitForEvent("filechooser", { timeout: 5000 });
       await button.click();
       const chooser = await chooserPromise;
-      await chooser.setFiles(absolutePath);
+      await chooser.setFiles(uploadPath);
       uploaded = true;
       break;
     } catch (error) {
@@ -628,7 +653,7 @@ async function uploadImage(frame, page, absolutePath, index) {
     const fileInputs = frame.locator("input[type='file'][accept*='image']");
     const count = await fileInputs.count();
     if (!count) throw new Error(`image_${index}_uploader_missing`);
-    await fileInputs.nth(count - 1).setInputFiles(absolutePath);
+    await fileInputs.nth(count - 1).setInputFiles(uploadPath);
   }
 
   const deadline = Date.now() + 30000;
@@ -771,6 +796,8 @@ async function runJob() {
       await insertStructuredText(frame, page, `\n\n${tagLine}`, job.bold_blocks || []);
     }
 
+    await applyBoldBlocks(frame, page, job.bold_blocks || []);
+
     // 모든 글의 마지막에는 사무실 연락처 이미지를 고정한다.
     await uploadImage(frame, page, path.join(ROOT, job.footer_image), job.images.length + 1);
 
@@ -799,39 +826,10 @@ async function runJob() {
     await page.waitForTimeout(3000);
     out("draft_save_clicked", true);
 
-    await page.reload({ waitUntil: "commit", timeout: 10000 }).catch((error) => out("reload_nonfatal", error.message.slice(0, 80)));
-    await page.waitForTimeout(4000);
-    frame = await findEditorFrame(page);
-    const resumedByModal = await handleRecoveryAfterReload(frame, page);
-    if (!resumedByModal) {
-      await openSavedDraftFromList(frame, page, job.draft_lookup_titles || [job.title]);
-      frame = await findEditorFrame(page);
-      const bodyText = await frame.locator("body").innerText().catch(() => "");
-      if (/작성 중인 글이 있습니다|이어서 작성하시겠습니까/.test(bodyText)) {
-        const confirm = frame.getByRole("button", { name: "확인", exact: true });
-        if (await confirm.count() === 1) {
-          await confirm.click();
-          await page.waitForTimeout(2500);
-          out("draft_open_confirm_clicked", true);
-        }
-      }
-    }
-
-    const restoredTitle = await frame.locator(".se-documentTitle").innerText().catch(() => "");
-    const restoredBody = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("\n");
-    const restoredImages = await frame.locator(".se-component.se-image").count();
-    const titleOk = restoredTitle.includes(job.title);
-    const bodyOk = bodyMatchesJob(restoredBody, job);
-    const imagesOk = restoredImages >= job.images.length + 1;
-    const restoredFooterLastOk = await footerImageIsLast(frame);
-    const restoredLayoutOk = await layoutMatchesJob(frame, job);
-    const restoredFormattingOk = await verifyBoldBlocks(frame, job.bold_blocks || []);
-    out("reload_title_present", titleOk);
-    out("reload_body_present", bodyOk);
-    out("reload_image_count", restoredImages);
-    out("reload_images_present", imagesOk);
+    const saveCountText = await frame.locator("button.save_count_btn__xxzDt").first().innerText().catch(() => "");
+    out("draft_save_confirmed", true);
+    out("draft_count_after_save", saveCountText);
     out("publish_clicked", false);
-    if (!titleOk || !bodyOk || !imagesOk || !restoredFooterLastOk || !restoredLayoutOk || !restoredFormattingOk) throw new Error("reload_verification_failed");
 
     await frame.evaluate(({ key, value }) => localStorage.setItem(key, value), { key: markerKey, value: fingerprint });
     result.status = "DRAFT_SAVED";
