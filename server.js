@@ -1226,8 +1226,10 @@ async function handleWork3Upload(req, res) {
 
   try {
     const payload = await readJsonRequest(req);
-    if (!payload || !Array.isArray(payload.images) || payload.images.length !== 4) {
-      throw new Error("four_work3_images_required");
+    const job = JSON.parse(fs.readFileSync(path.join(ROOT, JOB_FILE), "utf8"));
+    const expectedCount = Array.isArray(job.images) ? job.images.length : 0;
+    if (!payload || !Array.isArray(payload.images) || !expectedCount || payload.images.length !== expectedCount) {
+      throw new Error(`work3_image_count_required:${expectedCount}`);
     }
 
     for (let i = 0; i < payload.images.length; i += 1) {
@@ -1237,15 +1239,17 @@ async function handleWork3Upload(req, res) {
       if (buffer.length < 10000 || buffer.length > 2 * 1024 * 1024) {
         throw new Error(`invalid_work3_image_size_${i + 1}`);
       }
-      if (!(buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff)) {
-        throw new Error(`work3_image_not_jpeg_${i + 1}`);
-      }
-      fs.writeFileSync(path.join("/tmp", `work4-runtime-${i + 1}.jpg`), buffer);
+      const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+      const isPng = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+      if (!isJpeg && !isPng) throw new Error(`work3_image_format_invalid_${i + 1}`);
+      const targetPath = path.join(ROOT, job.images[i]);
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      fs.writeFileSync(targetPath, buffer);
       out(`work3_runtime_image_${i + 1}_received`, buffer.length);
     }
 
     res.statusCode = 202;
-    res.end(JSON.stringify({ ok: true, accepted: 4, action: "draft_run_started" }));
+    res.end(JSON.stringify({ ok: true, accepted: expectedCount, action: "draft_run_started" }));
     setImmediate(() => runJob().catch((error) => out("controller_error", error.message)));
   } catch (error) {
     res.statusCode = 400;
