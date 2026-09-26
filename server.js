@@ -636,6 +636,11 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
     if (lines[i].length) await page.keyboard.insertText(lines[i]);
     if (i < lines.length - 1) await page.keyboard.press("Enter");
   }
+
+  // Commit the final paragraph before the image toolbar takes focus.
+  // Without this trailing empty paragraph, SmartEditor can drop the last
+  // uncommitted text component when the next image is inserted.
+  await page.keyboard.press("Enter");
   await page.waitForTimeout(500);
 }
 
