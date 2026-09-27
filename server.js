@@ -1293,6 +1293,21 @@ async function handleDraftListDiagnostic(req, res) {
     const countButton = frame.locator("button.save_count_btn__xxzDt").first();
     if (await countButton.count() !== 1) throw new Error("draft_list_button_missing");
     const countText = (await countButton.innerText().catch(() => "")).trim();
+    const dim = frame.locator("div.se-popup-dim").first();
+    if (await dim.isVisible().catch(() => false)) {
+      const popupText = (await dim.locator("..").innerText().catch(() => "")).trim();
+      res.end(JSON.stringify({
+        ok: true,
+        pageUrls,
+        writePageFound: true,
+        editorFrameFound: true,
+        currentTitle,
+        countText,
+        popupBlocked: true,
+        popupText
+      }));
+      return;
+    }
     await countButton.click();
     await page.waitForTimeout(1800);
     const overlay = frame.locator('[aria-label="임시저장 글 보기"]').first();
