@@ -1314,7 +1314,11 @@ const server = http.createServer((req, res) => {
     handleWork3Upload(req, res);
     return;
   }
-  if (req.method === "GET" && parsedUrl.pathname === "/debug/draft-list") {\n    handleDraftListDiagnostic(req, res);\n    return;\n  }\n  if (req.url === "/health") {
+  if (req.method === "GET" && parsedUrl.pathname === "/debug/draft-list") {
+    handleDraftListDiagnostic(req, res);
+    return;
+  }
+  if (req.url === "/health") {
     res.end(JSON.stringify({ ok: true, lastResult }));
     return;
   }
