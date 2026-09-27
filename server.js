@@ -1276,9 +1276,19 @@ async function handleDraftListDiagnostic(req, res) {
     const wsUrl = `ws://naver-chromium.railway.internal:9222${new URL(version.webSocketDebuggerUrl).pathname}`;
     const browser = await connectBrowserOverCdp(wsUrl);
     const pages = browser.contexts().flatMap((context) => context.pages());
-    const page = pages.find((candidate) => candidate.url().includes("Redirect=Write")) || pages[0];
-    if (!page) throw new Error("write_page_missing");
-    const frame = await findEditorFrame(page, 15000);
+    const pageUrls = pages.map((candidate) => candidate.url());
+    const page = pages.find((candidate) => candidate.url().includes("Redirect=Write"));
+    if (!page) {
+      res.end(JSON.stringify({ ok: true, pageUrls, writePageFound: false }));
+      return;
+    }
+    let frame;
+    try {
+      frame = await findEditorFrame(page, 8000);
+    } catch (error) {
+      res.end(JSON.stringify({ ok: true, pageUrls, writePageFound: true, editorFrameFound: false, error: error.message }));
+      return;
+    }
     const currentTitle = (await frame.locator(".se-documentTitle").innerText().catch(() => "")).trim();
     const countButton = frame.locator("button.save_count_btn__xxzDt").first();
     if (await countButton.count() !== 1) throw new Error("draft_list_button_missing");
