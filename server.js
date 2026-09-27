@@ -1262,6 +1262,47 @@ async function handleWork3Upload(req, res) {
   }
 }
 
+
+async function handleDraftListDiagnostic(req, res) {
+  const token = process.env.WORK4_UPLOAD_TOKEN || "";
+  if (!token || req.headers["x-work4-token"] !== token) {
+    res.statusCode = 403;
+    res.end(JSON.stringify({ error: "forbidden" }));
+    return;
+  }
+
+  try {
+    const version = await getVersion();
+    const wsUrl = `ws://naver-chromium.railway.internal:9222${new URL(version.webSocketDebuggerUrl).pathname}`;
+    const browser = await connectBrowserOverCdp(wsUrl);
+    const pages = browser.contexts().flatMap((context) => context.pages());
+    const page = pages.find((candidate) => candidate.url().includes("Redirect=Write")) || pages[0];
+    if (!page) throw new Error("write_page_missing");
+    const frame = await findEditorFrame(page, 15000);
+    const currentTitle = (await frame.locator(".se-documentTitle").innerText().catch(() => "")).trim();
+    const countButton = frame.locator("button.save_count_btn__xxzDt").first();
+    if (await countButton.count() !== 1) throw new Error("draft_list_button_missing");
+    const countText = (await countButton.innerText().catch(() => "")).trim();
+    await countButton.click();
+    await page.waitForTimeout(1800);
+    const overlay = frame.locator('[aria-label="임시저장 글 보기"]').first();
+    const overlayVisible = await overlay.isVisible().catch(() => false);
+    const overlayText = overlayVisible ? (await overlay.innerText().catch(() => "")).trim() : "";
+    await page.keyboard.press("Escape").catch(() => {});
+    res.end(JSON.stringify({
+      ok: true,
+      currentTitle,
+      countText,
+      overlayVisible,
+      overlayText,
+      targetFound: overlayText.includes("유튜버 사업자등록 시점과 업종 선택, 첫 애드센스 수익부터 확인할 것")
+    }));
+  } catch (error) {
+    res.statusCode = 500;
+    res.end(JSON.stringify({ error: error.message }));
+  }
+}
+
 const server = http.createServer((req, res) => {
   res.setHeader("content-type", "application/json; charset=utf-8");
   const parsedUrl = new URL(req.url, "http://localhost");
@@ -1273,7 +1314,7 @@ const server = http.createServer((req, res) => {
     handleWork3Upload(req, res);
     return;
   }
-  if (req.url === "/health") {
+  if (req.method === "GET" && parsedUrl.pathname === "/debug/draft-list") {\n    handleDraftListDiagnostic(req, res);\n    return;\n  }\n  if (req.url === "/health") {
     res.end(JSON.stringify({ ok: true, lastResult }));
     return;
   }
