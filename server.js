@@ -12,6 +12,183 @@ const ROOT = __dirname;
 
 let lastResult = { status: "IDLE", published: false };
 
+const PIPELINE_STATE_FILE = process.env.PIPELINE_STATE_FILE || "/tmp/naver-work-pipeline-state.json";
+const PIPELINE_TOKEN = process.env.PIPELINE_TOKEN || process.env.WORK4_UPLOAD_TOKEN || "";
+const PIPELINE_STAGE_URLS = {
+  work1: process.env.WORK2_TRIGGER_URL || "",
+  work2: process.env.WORK3_TRIGGER_URL || "",
+};
+let work4RunPromise = null;
+
+function loadPipelineState() {
+  try {
+    return JSON.parse(fs.readFileSync(PIPELINE_STATE_FILE, "utf8"));
+  } catch (_) {
+    return { version: 1, contents: {} };
+  }
+}
+
+function savePipelineState(state) {
+  fs.mkdirSync(path.dirname(PIPELINE_STATE_FILE), { recursive: true });
+  const tmp = PIPELINE_STATE_FILE + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(state, null, 2), "utf8");
+  fs.renameSync(tmp, PIPELINE_STATE_FILE);
+}
+
+function updatePipelineStage(contentId, stage, patch = {}) {
+  if (!contentId) throw new Error("pipeline_content_id_required");
+  const state = loadPipelineState();
+  if (!state.contents[contentId]) {
+    state.contents[contentId] = {
+      content_id: contentId,
+      created_at: new Date().toISOString(),
+      stages: {},
+    };
+  }
+  const item = state.contents[contentId];
+  item.updated_at = new Date().toISOString();
+  item.stages[stage] = {
+    ...(item.stages[stage] || {}),
+    ...patch,
+    updated_at: new Date().toISOString(),
+  };
+  savePipelineState(state);
+  out("pipeline_stage", { content_id: contentId, stage, status: item.stages[stage].status || "" });
+  return item;
+}
+
+function pipelineAuthorized(req, url) {
+  if (!PIPELINE_TOKEN) return false;
+  const bearer = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  const header = String(req.headers["x-pipeline-token"] || "");
+  const query = url ? String(url.searchParams.get("token") || "") : "";
+  return bearer === PIPELINE_TOKEN || header === PIPELINE_TOKEN || query === PIPELINE_TOKEN;
+}
+
+async function triggerPipelineUrl(url, payload) {
+  if (!url) return { triggered: false, reason: "trigger_url_missing" };
+  if (typeof fetch !== "function") throw new Error("global_fetch_unavailable");
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-pipeline-token": PIPELINE_TOKEN,
+    },
+    body: JSON.stringify(payload),
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(\`next_stage_http_\${response.status}:\${text.slice(0, 300)}\`);
+  return { triggered: true, status: response.status, response: text.slice(0, 500) };
+}
+
+async function handlePipelineStageComplete(req, res, stage) {
+  const url = new URL(req.url, "http://localhost");
+  if (!pipelineAuthorized(req, url)) {
+    res.statusCode = 403;
+    res.end(JSON.stringify({ error: "forbidden" }));
+    return;
+  }
+
+  try {
+    const payload = await readJsonRequest(req, 2 * 1024 * 1024);
+    const contentId = String(payload.content_id || "").trim();
+    if (!contentId) throw new Error("pipeline_content_id_required");
+
+    const current = updatePipelineStage(contentId, stage, {
+      status: "DONE",
+      received_at: new Date().toISOString(),
+      payload,
+    });
+
+    const nextStage = stage === "work1" ? "work2" : stage === "work2" ? "work3" : "";
+    if (!nextStage) {
+      res.end(JSON.stringify({ ok: true, content_id: contentId, stage, current }));
+      return;
+    }
+
+    updatePipelineStage(contentId, nextStage, { status: "TRIGGERING" });
+    try {
+      const triggered = await triggerPipelineUrl(PIPELINE_STAGE_URLS[stage], {
+        content_id: contentId,
+        source_stage: stage,
+        target_stage: nextStage,
+        previous_output: payload,
+      });
+      updatePipelineStage(contentId, nextStage, {
+        status: triggered.triggered ? "TRIGGERED" : "WAITING_TRIGGER_URL",
+        trigger_result: triggered,
+      });
+      res.statusCode = triggered.triggered ? 202 : 200;
+      res.end(JSON.stringify({
+        ok: true,
+        content_id: contentId,
+        completed_stage: stage,
+        next_stage: nextStage,
+        ...triggered,
+      }));
+    } catch (error) {
+      updatePipelineStage(contentId, nextStage, { status: "TRIGGER_FAILED", error: error.message });
+      res.statusCode = 502;
+      res.end(JSON.stringify({ error: error.message, content_id: contentId, next_stage: nextStage }));
+    }
+  } catch (error) {
+    res.statusCode = 400;
+    res.end(JSON.stringify({ error: error.message }));
+  }
+}
+
+function handlePipelineStatus(req, res, url) {
+  if (!pipelineAuthorized(req, url)) {
+    res.statusCode = 403;
+    res.end(JSON.stringify({ error: "forbidden" }));
+    return;
+  }
+  const contentId = String(url.searchParams.get("content_id") || "").trim();
+  const state = loadPipelineState();
+  if (!contentId) {
+    res.end(JSON.stringify(state));
+    return;
+  }
+  const item = state.contents[contentId];
+  if (!item) {
+    res.statusCode = 404;
+    res.end(JSON.stringify({ error: "content_not_found", content_id: contentId }));
+    return;
+  }
+  res.end(JSON.stringify(item));
+}
+
+async function startWork4Run(trigger = "manual") {
+  if (work4RunPromise) {
+    out("work4_duplicate_trigger_ignored", trigger);
+    return work4RunPromise;
+  }
+
+  let contentId = "";
+  try {
+    contentId = String(loadJob().content_id || "");
+    updatePipelineStage(contentId, "work4", { status: "RUNNING", trigger });
+  } catch (error) {
+    out("pipeline_work4_state_init_error", error.message);
+  }
+
+  work4RunPromise = runJob()
+    .then((result) => {
+      if (contentId) updatePipelineStage(contentId, "work4", { status: "DONE", result });
+      return result;
+    })
+    .catch((error) => {
+      if (contentId) updatePipelineStage(contentId, "work4", { status: "FAILED", error: error.message });
+      throw error;
+    })
+    .finally(() => {
+      work4RunPromise = null;
+    });
+
+  return work4RunPromise;
+}
+
+
 function out(key, value) {
   console.log(`${key}=${typeof value === "string" ? value : JSON.stringify(value)}`);
 }
@@ -1218,8 +1395,15 @@ async function handleWork3Chunk(req, res, url) {
     fs.writeFileSync(sheetPath, buffer);
     await finalizeWork3Sheet(sheetPath);
     for (const name of files) fs.unlinkSync(path.join(dir, name));
-    res.end(JSON.stringify({ ok: true, completed: true, action: "draft_run_started" }));
-    setImmediate(() => runJob().catch((error) => out("controller_error", error.message)));
+    let work3ContentId = "";
+    try {
+      work3ContentId = String(loadJob().content_id || "");
+      updatePipelineStage(work3ContentId, "work3", { status: "DONE", source: "chunk_upload" });
+    } catch (error) {
+      out("pipeline_work3_state_error", error.message);
+    }
+    res.end(JSON.stringify({ ok: true, completed: true, action: "draft_run_started", content_id: work3ContentId }));
+    setImmediate(() => startWork4Run("work3_chunk_upload").catch((error) => out("controller_error", error.message)));
   } catch (error) {
     res.statusCode = 400;
     res.end(JSON.stringify({ error: error.message }));
@@ -1286,9 +1470,19 @@ async function handleWork3Upload(req, res) {
       out(`work3_runtime_image_${i + 1}_received`, buffer.length);
     }
 
+    updatePipelineStage(String(job.content_id || ""), "work3", {
+      status: "DONE",
+      source: "image_upload",
+      image_count: expectedCount,
+    });
     res.statusCode = 202;
-    res.end(JSON.stringify({ ok: true, accepted: expectedCount, action: "draft_run_started" }));
-    setImmediate(() => runJob().catch((error) => out("controller_error", error.message)));
+    res.end(JSON.stringify({
+      ok: true,
+      accepted: expectedCount,
+      action: "draft_run_started",
+      content_id: job.content_id,
+    }));
+    setImmediate(() => startWork4Run("work3_image_upload").catch((error) => out("controller_error", error.message)));
   } catch (error) {
     res.statusCode = 400;
     res.end(JSON.stringify({ error: error.message }));
@@ -1386,6 +1580,18 @@ async function handleDraftListDiagnostic(req, res) {
 const server = http.createServer((req, res) => {
   res.setHeader("content-type", "application/json; charset=utf-8");
   const parsedUrl = new URL(req.url, "http://localhost");
+  if (req.method === "POST" && parsedUrl.pathname === "/pipeline/work1-complete") {
+    handlePipelineStageComplete(req, res, "work1");
+    return;
+  }
+  if (req.method === "POST" && parsedUrl.pathname === "/pipeline/work2-complete") {
+    handlePipelineStageComplete(req, res, "work2");
+    return;
+  }
+  if (req.method === "GET" && parsedUrl.pathname === "/pipeline/status") {
+    handlePipelineStatus(req, res, parsedUrl);
+    return;
+  }
   if (req.method === "GET" && parsedUrl.pathname === "/work4/work3-chunk") {
     handleWork3Chunk(req, res, parsedUrl);
     return;
@@ -1413,7 +1619,7 @@ server.listen(PORT, () => out("controller_listening", PORT));
     const hydrated = await hydrateRuntimeWork3ImagesFromEnv();
     if (RUN_ON_BOOT || hydrated) {
       out("run_trigger", hydrated ? "work3_env_sheet" : "run_on_boot");
-      runJob().catch((error) => out("controller_error", error.message));
+      startWork4Run(hydrated ? "work3_env_sheet" : "run_on_boot").catch((error) => out("controller_error", error.message));
     } else {
       out("run_on_boot", false);
     }
