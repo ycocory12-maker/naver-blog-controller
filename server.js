@@ -293,7 +293,9 @@ async function openSavedDraftFromList(frame, page, titles) {
   if (await countButton.count() !== 1) throw new Error("draft_list_button_missing");
   const countText = (await countButton.innerText().catch(() => "")).trim();
   out("draft_count_after_save", countText);
-  await countButton.click();
+  await page.keyboard.press("Escape").catch(() => {});
+  await page.waitForTimeout(500);
+  await countButton.click({ force: true });
   await page.waitForTimeout(2000);
 
   const lookupTitles = Array.isArray(titles) ? titles : [titles];
@@ -306,7 +308,7 @@ async function openSavedDraftFromList(frame, page, titles) {
       for (let i = 0; i < exactCount; i += 1) {
         const candidate = exact.nth(i);
         if (!await candidate.isVisible().catch(() => false)) continue;
-        await candidate.click();
+        await candidate.click({ force: true });
         await page.waitForTimeout(3000);
         out("draft_title_clicked", title);
         return;
@@ -319,7 +321,7 @@ async function openSavedDraftFromList(frame, page, titles) {
       for (let i = 0; i < partialCount; i += 1) {
         const candidate = partial.nth(i);
         if (!await candidate.isVisible().catch(() => false)) continue;
-        await candidate.click();
+        await candidate.click({ force: true });
         await page.waitForTimeout(3000);
         out("draft_title_clicked", title);
         return;
