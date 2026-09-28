@@ -288,7 +288,38 @@ async function handleRecoveryAfterReload(frame, page) {
   return true;
 }
 
+async function dismissHelpOverlay(frame, page) {
+  const helpTitle = frame.locator("h1.se-help-title").first();
+  if (!await helpTitle.isVisible().catch(() => false)) return false;
+  const container = helpTitle.locator("xpath=ancestor::div[contains(@class,'container__')][1]");
+  const selectors = [
+    'button[aria-label*="닫기"]',
+    'button[title*="닫기"]',
+    'button[class*="close"]',
+    'button[class*="Close"]'
+  ];
+  for (const selector of selectors) {
+    const button = await visibleFirst(container.locator(selector));
+    if (!button) continue;
+    await button.click({ force: true }).catch(() => {});
+    await page.waitForTimeout(500);
+    if (!await helpTitle.isVisible().catch(() => false)) {
+      out("help_overlay_closed", selector);
+      return true;
+    }
+  }
+  await container.evaluate((element) => {
+    element.style.display = "none";
+    element.style.pointerEvents = "none";
+    element.setAttribute("aria-hidden", "true");
+  }).catch(() => {});
+  await page.waitForTimeout(300);
+  out("help_overlay_suppressed", true);
+  return true;
+}
+
 async function openSavedDraftFromList(frame, page, titles) {
+  await dismissHelpOverlay(frame, page);
   const countButton = frame.locator("button.save_count_btn__xxzDt").first();
   if (await countButton.count() !== 1) throw new Error("draft_list_button_missing");
   const countText = (await countButton.innerText().catch(() => "")).trim();
@@ -1292,6 +1323,7 @@ async function handleDraftListDiagnostic(req, res) {
       return;
     }
     const currentTitle = (await frame.locator(".se-documentTitle").innerText().catch(() => "")).trim();
+    await dismissHelpOverlay(frame, page);
     const countButton = frame.locator("button.save_count_btn__xxzDt").first();
     if (await countButton.count() !== 1) throw new Error("draft_list_button_missing");
     const countText = (await countButton.innerText().catch(() => "")).trim();
