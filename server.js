@@ -1294,10 +1294,18 @@ async function handleDraftListDiagnostic(req, res) {
     if (await countButton.count() !== 1) throw new Error("draft_list_button_missing");
     const countText = (await countButton.innerText().catch(() => "")).trim();
     const dim = frame.locator("div.se-popup-dim").first();
+    const requestUrl = new URL(req.url, "http://localhost");
+    if (requestUrl.searchParams.get("save") === "1") {
+      const save = frame.locator("button.save_btn__FuUyN").first();
+      if (await save.count() !== 1) throw new Error("draft_save_button_missing");
+      await save.click({ force: true });
+      await page.waitForTimeout(3000);
+      out("diagnostic_force_save_clicked", true);
+    }
     if (await dim.isVisible().catch(() => false)) {
       const popup = dim.locator("..");
       const popupText = (await popup.innerText().catch(() => "")).trim();
-      const resolveConflict = new URL(req.url, "http://localhost").searchParams.get("resolve") === "1";
+      const resolveConflict = requestUrl.searchParams.get("resolve") === "1";
       if (resolveConflict && /임시저장글이 다른 기기에서[\s\S]*덮어 쓰시겠습니까/.test(popupText)) {
         const confirm = popup.getByRole("button", { name: "확인", exact: true });
         if (await confirm.count() !== 1) throw new Error("draft_conflict_confirm_not_unique");
