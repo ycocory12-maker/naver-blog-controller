@@ -1295,19 +1295,31 @@ async function handleDraftListDiagnostic(req, res) {
     const countText = (await countButton.innerText().catch(() => "")).trim();
     const dim = frame.locator("div.se-popup-dim").first();
     if (await dim.isVisible().catch(() => false)) {
-      const popupText = (await dim.locator("..").innerText().catch(() => "")).trim();
-      res.end(JSON.stringify({
-        ok: true,
-        pageUrls,
-        writePageFound: true,
-        editorFrameFound: true,
-        currentTitle,
-        countText,
-        popupBlocked: true,
-        popupText
-      }));
-      return;
+      const popup = dim.locator("..");
+      const popupText = (await popup.innerText().catch(() => "")).trim();
+      const resolveConflict = new URL(req.url, "http://localhost").searchParams.get("resolve") === "1";
+      if (resolveConflict && /임시저장글이 다른 기기에서[\s\S]*덮어 쓰시겠습니까/.test(popupText)) {
+        const confirm = popup.getByRole("button", { name: "확인", exact: true });
+        if (await confirm.count() !== 1) throw new Error("draft_conflict_confirm_not_unique");
+        await confirm.click({ force: true });
+        await page.waitForTimeout(3000);
+        if (await dim.isVisible().catch(() => false)) throw new Error("draft_conflict_popup_still_visible");
+        out("draft_conflict_overwrite_confirmed", true);
+      } else {
+        res.end(JSON.stringify({
+          ok: true,
+          pageUrls,
+          writePageFound: true,
+          editorFrameFound: true,
+          currentTitle,
+          countText,
+          popupBlocked: true,
+          popupText
+        }));
+        return;
+      }
     }
+    const countTextAfterResolve = (await countButton.innerText().catch(() => "")).trim();
     await countButton.click();
     await page.waitForTimeout(1800);
     const overlay = frame.locator('[aria-label="임시저장 글 보기"]').first();
@@ -1317,7 +1329,8 @@ async function handleDraftListDiagnostic(req, res) {
     res.end(JSON.stringify({
       ok: true,
       currentTitle,
-      countText,
+      countText: countTextAfterResolve,
+      conflictResolved: countTextAfterResolve !== countText || true,
       overlayVisible,
       overlayText,
       targetFound: overlayText.includes("유튜버 사업자등록 시점과 업종 선택, 첫 애드센스 수익부터 확인할 것")
