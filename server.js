@@ -1136,7 +1136,20 @@ async function runJob() {
 
   try {
     const pages = browser.contexts().flatMap((context) => context.pages());
-    const page = pages.find((candidate) => candidate.url().includes("Redirect=Write")) || pages[0];
+    let page;
+    if (job.force_new_page) {
+      const context = browser.contexts()[0];
+      if (!context) throw new Error("browser_context_missing");
+      page = await context.newPage();
+      await page.goto("https://blog.naver.com/tlsehdduq0152?Redirect=Write&categoryNo=1", {
+        waitUntil: "domcontentloaded",
+        timeout: 30000,
+      });
+      await page.waitForTimeout(4000);
+      out("force_new_page_opened", true);
+    } else {
+      page = pages.find((candidate) => candidate.url().includes("Redirect=Write")) || pages[0];
+    }
     if (!page) throw new Error("write_page_missing");
     result.current_url = page.url();
     if (page.url().includes("nid.naver.com")) {
