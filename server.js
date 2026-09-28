@@ -77,7 +77,7 @@ async function triggerPipelineUrl(url, payload) {
     body: JSON.stringify(payload),
   });
   const text = await response.text();
-  if (!response.ok) throw new Error(\`next_stage_http_\${response.status}:\${text.slice(0, 300)}\`);
+  if (!response.ok) throw new Error(`next_stage_http_${response.status}:${text.slice(0, 300)}`);
   return { triggered: true, status: response.status, response: text.slice(0, 500) };
 }
 
