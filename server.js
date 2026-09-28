@@ -1517,7 +1517,7 @@ async function handleDraftListDiagnostic(req, res) {
     const browser = await connectBrowserOverCdp(wsUrl);
     const pages = browser.contexts().flatMap((context) => context.pages());
     const pageUrls = pages.map((candidate) => candidate.url());
-    const page = pages.find((candidate) => candidate.url().includes("Redirect=Write"));
+    const page = [...pages].reverse().find((candidate) => candidate.url().includes("Redirect=Write"));
     if (!page) {
       res.end(JSON.stringify({ ok: true, pageUrls, writePageFound: false }));
       return;
@@ -1569,7 +1569,7 @@ async function handleDraftListDiagnostic(req, res) {
       }
     }
     const countTextAfterResolve = (await countButton.innerText().catch(() => "")).trim();
-    await countButton.click();
+    await countButton.click({ force: true });
     await page.waitForTimeout(1800);
     const overlay = frame.locator('[aria-label="임시저장 글 보기"]').first();
     const overlayVisible = await overlay.isVisible().catch(() => false);
