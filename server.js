@@ -1590,6 +1590,25 @@ async function handleDraftListDiagnostic(req, res) {
   }
 }
 
+async function handleTargetDiagnostic(req, res) {
+  const token = process.env.WORK4_UPLOAD_TOKEN || "";
+  if (!token || req.headers["x-work4-token"] !== token) {
+    res.statusCode = 403;
+    res.end(JSON.stringify({ error: "forbidden" }));
+    return;
+  }
+  try {
+    const targets = await getCdpTargetsOnce();
+    const pages = (Array.isArray(targets) ? targets : [])
+      .filter((target) => target && target.type === "page")
+      .map((target) => ({ id: target.id, title: target.title || "", url: target.url || "" }));
+    res.end(JSON.stringify({ ok: true, pages }));
+  } catch (error) {
+    res.statusCode = 500;
+    res.end(JSON.stringify({ error: error.message }));
+  }
+}
+
 const server = http.createServer((req, res) => {
   res.setHeader("content-type", "application/json; charset=utf-8");
   const parsedUrl = new URL(req.url, "http://localhost");
@@ -1615,6 +1634,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "GET" && parsedUrl.pathname === "/debug/draft-list") {
     handleDraftListDiagnostic(req, res);
+    return;
+  }
+  if (req.method === "GET" && parsedUrl.pathname === "/debug/targets") {
+    handleTargetDiagnostic(req, res);
     return;
   }
   if (req.url === "/health") {
