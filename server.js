@@ -435,8 +435,18 @@ async function closeDraftListOverlay(frame, page) {
 }
 
 async function handleRecoveryBeforeInput(frame, page) {
-  const bodyText = await frame.locator("body").innerText().catch(() => "");
-  const visible = /작성 중인 글이 있습니다|이어서 작성하시겠습니까/.test(bodyText);
+  // Smart Editor can render its recovery confirmation a moment after the
+  // editor frame itself becomes ready. Poll briefly so the late popup cannot
+  // intercept the first title click.
+  let bodyText = "";
+  let visible = false;
+  const deadline = Date.now() + 6000;
+  while (Date.now() < deadline) {
+    bodyText = await frame.locator("body").innerText().catch(() => "");
+    visible = /작성 중인 글이 있습니다|이어서 작성하시겠습니까/.test(bodyText);
+    if (visible) break;
+    await page.waitForTimeout(500);
+  }
   out("recovery_modal_before_input", visible);
   if (!visible) return;
 
@@ -445,7 +455,7 @@ async function handleRecoveryBeforeInput(frame, page) {
   const count = await cancel.count();
   out("recovery_cancel_count", count);
   if (count !== 1) throw new Error("recovery_conflict_no_unique_cancel");
-  await cancel.click();
+  await cancel.click({ force: true });
   await page.waitForTimeout(2000);
   out("recovery_cancel_clicked", true);
 }
