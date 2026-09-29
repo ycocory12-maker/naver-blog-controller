@@ -513,7 +513,11 @@ async function openSavedDraftFromList(frame, page, titles) {
   out("draft_count_after_save", countText);
   await page.keyboard.press("Escape").catch(() => {});
   await page.waitForTimeout(500);
-  await countButton.click({ force: true });
+  const listOpened = await countButton.evaluate((element) => {
+    element.click();
+    return true;
+  }).catch(() => false);
+  if (!listOpened) throw new Error("draft_list_button_click_failed");
   await page.waitForTimeout(2000);
 
   const lookupTitles = Array.isArray(titles) ? titles : [titles];
