@@ -847,27 +847,39 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
   await target.click();
   await page.keyboard.press("Control+End");
 
+  const normalize = (value) => (value || "").replace(/[\s\u200B\uFEFF]/g, "");
   const lines = text
     .trim()
     .split("\n")
     .map((line) => line.replace(/^[-*•]\s+/, "• "));
 
+  let boldEnabled = false;
   for (let i = 0; i < lines.length; i += 1) {
+    const normalizedLine = normalize(lines[i]);
+    const shouldBold = Boolean(normalizedLine) && boldBlocks.some((block) =>
+      normalizedLine.includes(normalize(block))
+    );
+
+    if (shouldBold !== boldEnabled) {
+      await setBoldToolbarState(frame, page, shouldBold);
+      boldEnabled = shouldBold;
+    }
+
     if (lines[i].length) {
       await page.keyboard.insertText(lines[i]);
-      // Smart Editor updates its paragraph model asynchronously. Yield after
-      // each line so a following Enter cannot overtake and drop the text.
-      await page.waitForTimeout(80);
+      await page.waitForTimeout(100);
     }
     if (i < lines.length - 1) {
       await page.keyboard.press("Enter");
-      await page.waitForTimeout(80);
+      await page.waitForTimeout(100);
     }
   }
 
+  if (boldEnabled) {
+    await setBoldToolbarState(frame, page, false);
+  }
+
   // Commit the final paragraph before the image toolbar takes focus.
-  // Without this trailing empty paragraph, SmartEditor can drop the last
-  // uncommitted text component when the next image is inserted.
   await page.keyboard.press("Enter");
   await page.waitForTimeout(500);
 }
