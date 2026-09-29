@@ -65,5 +65,5 @@
     "require_generated_images": true
   },
   "image_source": "WORK3_imagegen",
-  "verify_only": true
+  "verify_only": false
 }
