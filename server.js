@@ -1344,6 +1344,28 @@ async function runJob() {
     out("draft_count_after_save", saveCountText);
     out("publish_clicked", false);
 
+    // Reopen the saved item from Naver's draft list and verify persisted content.
+    await openSavedDraftFromList(frame, page, job.draft_lookup_titles || [job.title]);
+    await page.waitForTimeout(2500);
+    frame = await findEditorFrame(page);
+    const reopenedTitle = await frame.locator(".se-documentTitle").innerText().catch(() => "");
+    const reopenedBody = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("\n");
+    const reopenedImages = await frame.locator(".se-component.se-image").count();
+    const reopenTitleOk = reopenedTitle.includes(job.title);
+    const reopenBodyOk = bodyMatchesJob(reopenedBody, job);
+    const reopenImagesOk = reopenedImages >= job.images.length + 1;
+    const reopenFooterOk = await footerImageIsLast(frame);
+    const reopenLayoutOk = await layoutMatchesJob(frame, job);
+    out("reopen_title_present", reopenTitleOk);
+    out("reopen_body_present", reopenBodyOk);
+    out("reopen_image_count", reopenedImages);
+    out("reopen_images_present", reopenImagesOk);
+    out("reopen_footer_last", reopenFooterOk);
+    out("reopen_layout_match", reopenLayoutOk);
+    if (!reopenTitleOk || !reopenBodyOk || !reopenImagesOk || !reopenFooterOk || !reopenLayoutOk) {
+      throw new Error("reopen_verification_failed");
+    }
+
     await frame.evaluate(({ key, value }) => localStorage.setItem(key, value), { key: markerKey, value: fingerprint });
     result.status = "DRAFT_SAVED";
     result.draft_saved = true;
