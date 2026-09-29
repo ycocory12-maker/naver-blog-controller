@@ -513,7 +513,9 @@ async function openSavedDraftFromList(frame, page, titles) {
   out("draft_count_after_save", countText);
   await page.keyboard.press("Escape").catch(() => {});
   await page.waitForTimeout(500);
-  const listOpened = await countButton.evaluate((element) => {
+  const listOpened = await frame.evaluate(() => {
+    const element = document.querySelector("button.save_count_btn__xxzDt");
+    if (!element) return false;
     element.click();
     return true;
   }).catch(() => false);
