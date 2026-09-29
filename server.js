@@ -455,7 +455,7 @@ async function handleRecoveryBeforeInput(frame, page) {
   const count = await cancel.count();
   out("recovery_cancel_count", count);
   if (count !== 1) throw new Error("recovery_conflict_no_unique_cancel");
-  await cancel.click({ force: true });
+  await cancel.evaluate((element) => element.click());
   await page.waitForTimeout(2000);
   out("recovery_cancel_clicked", true);
 }
