@@ -1268,6 +1268,36 @@ async function runJob() {
         currentTitle = await frame.locator(".se-documentTitle").innerText().catch(() => "");
       }
       if (!lookupTitles.some((value) => currentTitle.includes(value))) throw new Error("existing_draft_not_opened");
+
+      if (job.verify_only) {
+        const existingBody = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("\n");
+        const existingImages = await frame.locator(".se-component.se-image").count();
+        const markerCount = (existingBody.match(/(^|\n)\s*#{1,6}\s+/gm) || []).length;
+        const bodyOk = bodyMatchesJob(existingBody, job);
+        const imagesOk = existingImages >= job.images.length + 1;
+        const footerOk = await footerImageIsLast(frame);
+        const layoutOk = await layoutMatchesJob(frame, job);
+        const formattingOk = await verifyBoldBlocks(frame, job.bold_blocks || []);
+        out("verify_only_markdown_heading_count", markerCount);
+        out("verify_only_body", bodyOk);
+        out("verify_only_images", imagesOk);
+        out("verify_only_footer", footerOk);
+        out("verify_only_layout", layoutOk);
+        out("verify_only_formatting", formattingOk);
+        out("publish_clicked", false);
+        if (markerCount || !bodyOk || !imagesOk || !footerOk || !layoutOk || !formattingOk) {
+          throw new Error("verify_only_failed");
+        }
+        result.title_entered = true;
+        result.body_entered = true;
+        result.images_uploaded = true;
+        result.draft_saved = true;
+        result.status = "DRAFT_SAVED";
+        lastResult = result;
+        out("work4_result", result);
+        return result;
+      }
+
       await clearExistingBody(frame, page);
       out("existing_draft_replace_mode", true);
     } else {
