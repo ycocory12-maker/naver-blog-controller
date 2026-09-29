@@ -853,8 +853,16 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
     .map((line) => line.replace(/^[-*•]\s+/, "• "));
 
   for (let i = 0; i < lines.length; i += 1) {
-    if (lines[i].length) await page.keyboard.insertText(lines[i]);
-    if (i < lines.length - 1) await page.keyboard.press("Enter");
+    if (lines[i].length) {
+      await page.keyboard.insertText(lines[i]);
+      // Smart Editor updates its paragraph model asynchronously. Yield after
+      // each line so a following Enter cannot overtake and drop the text.
+      await page.waitForTimeout(80);
+    }
+    if (i < lines.length - 1) {
+      await page.keyboard.press("Enter");
+      await page.waitForTimeout(80);
+    }
   }
 
   // Commit the final paragraph before the image toolbar takes focus.
