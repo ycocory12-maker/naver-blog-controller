@@ -1099,40 +1099,58 @@ async function uploadImage(frame, page, absolutePath, index) {
   const uploadPath = await prepareUploadImage(page, absolutePath, index);
   const before = await frame.locator(".se-component.se-image").count();
 
-  // insertStructuredText가 남긴 현재 편집 커서를 유지해야 이미지가 정확한 토큰 위치에 들어간다.
-  const buttonSelectors = [
-    "button.se-image-toolbar-button",
-    ".se-toolbar-item-image button",
-    "button[aria-label*='사진']",
-    "button[title*='사진']",
-    "button:has-text('사진')",
-  ];
-
+  // Reuse Smart Editor's native file input when it already exists. This avoids
+  // intermittent second-image file chooser dialogs that do not emit an event.
   let uploaded = false;
-  for (const selector of buttonSelectors) {
-    const button = await visibleFirst(frame.locator(selector));
-    if (!button) continue;
+  const existingInputs = frame.locator("input[type='file'][accept*='image']");
+  const existingCount = await existingInputs.count();
+  if (existingCount) {
     try {
-      const [chooser] = await Promise.all([
-        page.waitForEvent("filechooser", { timeout: 8000 }),
-        button.click(),
-      ]);
-      await chooser.setFiles(uploadPath);
+      await existingInputs.nth(existingCount - 1).setInputFiles(uploadPath);
       uploaded = true;
-      break;
+      out(`image_${index}_direct_input`, true);
     } catch (error) {
-      out(`image_${index}_button_attempt`, `${selector}:${error.message.slice(0, 80)}`);
+      out(`image_${index}_direct_input_error`, error.message.slice(0, 100));
     }
   }
 
   if (!uploaded) {
-    const fileInputs = frame.locator("input[type='file'][accept*='image']");
-    const count = await fileInputs.count();
-    if (!count) throw new Error(`image_${index}_uploader_missing`);
-    await fileInputs.nth(count - 1).setInputFiles(uploadPath);
+    const buttonSelectors = [
+      "button.se-image-toolbar-button",
+      ".se-toolbar-item-image button",
+      "button[aria-label*='사진']",
+      "button[title*='사진']",
+      "button:has-text('사진')",
+    ];
+
+    for (const selector of buttonSelectors) {
+      const button = await visibleFirst(frame.locator(selector));
+      if (!button) continue;
+      try {
+        const [chooser] = await Promise.all([
+          page.waitForEvent("filechooser", { timeout: 12000 }),
+          button.click({ force: true }),
+        ]);
+        await chooser.setFiles(uploadPath);
+        uploaded = true;
+        break;
+      } catch (error) {
+        out(`image_${index}_button_attempt`, `${selector}:${error.message.slice(0, 80)}`);
+        const inputs = frame.locator("input[type='file'][accept*='image']");
+        const count = await inputs.count();
+        if (count) {
+          await inputs.nth(count - 1).setInputFiles(uploadPath).catch(() => {});
+          uploaded = true;
+          out(`image_${index}_input_after_click`, true);
+          break;
+        }
+      }
+    }
   }
 
-  const deadline = Date.now() + 30000;
+  if (!uploaded) throw new Error(`image_${index}_uploader_missing`);
+
+  const deadline = Date.now() + 60000;
   while (Date.now() < deadline) {
     const current = await frame.locator(".se-component.se-image").count();
     if (current > before) {
