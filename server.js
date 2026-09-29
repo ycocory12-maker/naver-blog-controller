@@ -256,7 +256,7 @@ function getVersionOnce() {
 }
 
 async function getVersion() {
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  for (let attempt = 1; attempt <= 8; attempt += 1) {
     try {
       out("cdp_version_attempt", attempt);
       const value = await getVersionOnce();
@@ -264,7 +264,7 @@ async function getVersion() {
       return value;
     } catch (error) {
       out("cdp_version_error", error.message);
-      if (attempt < 3) await sleep(1500);
+      if (attempt < 8) await sleep(2000);
     }
   }
   throw new Error("cdp_version_failed");
