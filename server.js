@@ -1099,9 +1099,10 @@ async function uploadImage(frame, page, absolutePath, index) {
     const button = await visibleFirst(frame.locator(selector));
     if (!button) continue;
     try {
-      const chooserPromise = page.waitForEvent("filechooser", { timeout: 5000 });
-      await button.click();
-      const chooser = await chooserPromise;
+      const [chooser] = await Promise.all([
+        page.waitForEvent("filechooser", { timeout: 8000 }),
+        button.click(),
+      ]);
       await chooser.setFiles(uploadPath);
       uploaded = true;
       break;
