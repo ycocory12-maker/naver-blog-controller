@@ -873,56 +873,70 @@ async function insertStructuredText(frame, page, text, boldBlocks = []) {
 }
 
 async function applyBoldBlocks(frame, page, boldBlocks = []) {
-  const normalize = (value) => (value || "").replace(/[\s\u200B\uFEFF]/g, "");
-  const boldButton = await visibleFirst(
-    frame.locator(".se-toolbar-item-bold button, button.se-toolbar-button.se-toolbar-button-bold, button[aria-label*='굵게'], button[title*='굵게']")
-  );
-  if (!boldButton) throw new Error("bold_toolbar_missing");
-
   for (let blockIndex = boldBlocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
     const expected = boldBlocks[blockIndex];
-    const wanted = normalize(expected);
-    const paragraphs = frame.locator(".se-component.se-text .se-text-paragraph");
+    if (await verifyBoldBlocks(frame, [expected])) {
+      out(`bold_block_${blockIndex + 1}_already_verified`, true);
+      continue;
+    }
+
+    const paragraphs = frame.locator(".se-component.se-text");
     const count = await paragraphs.count();
     let target = null;
-
     for (let i = 0; i < count; i += 1) {
       const candidate = paragraphs.nth(i);
       if (!await candidate.isVisible().catch(() => false)) continue;
-      const text = await candidate.innerText().catch(() => "");
-      if (normalize(text).includes(wanted)) {
+      const contains = await candidate.evaluate((element, value) => {
+        const normalize = (text) => (text || "").replace(/[\s\u200B\uFEFF]/g, "");
+        return normalize(element.textContent).includes(normalize(value));
+      }, expected).catch(() => false);
+      if (contains) {
         target = candidate;
         break;
       }
     }
-    if (!target) throw new Error(`bold_paragraph_missing:${blockIndex + 1}`);
+    if (!target) throw new Error(`bold_target_missing:${blockIndex + 1}`);
 
-    await target.scrollIntoViewIfNeeded();
-    await target.click({ clickCount: 3, delay: 80 });
-    await page.waitForTimeout(250);
+    const selected = await target.evaluate((element, value) => {
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      const chars = [];
+      let compact = "";
+      let node = walker.nextNode();
+      while (node) {
+        const content = node.textContent || "";
+        for (let offset = 0; offset < content.length; offset += 1) {
+          const char = content[offset];
+          if (!/[\s\u200B\uFEFF]/.test(char)) {
+            compact += char;
+            chars.push({ node, offset });
+          }
+        }
+        node = walker.nextNode();
+      }
 
-    const blockSelected = await target.evaluate((element) =>
-      element.classList.contains("se-is-text-paragraph-block-selected")
-    ).catch(() => false);
-    out(`bold_block_${blockIndex + 1}_block_selected`, blockSelected);
+      const wanted = value.replace(/[\s\u200B\uFEFF]/g, "");
+      const start = compact.indexOf(wanted);
+      if (start < 0 || !wanted.length) return false;
+      const first = chars[start];
+      const last = chars[start + wanted.length - 1];
+      if (!first || !last) return false;
 
-    if (!blockSelected) {
-      await target.click({ clickCount: 2, delay: 100 });
-      await page.waitForTimeout(200);
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.setStart(first.node, first.offset);
+      range.setEnd(last.node, last.offset + 1);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
+      return selection.toString().replace(/[\s\u200B\uFEFF]/g, "") === wanted;
+    }, expected).catch(() => false);
+
+    if (!selected) throw new Error(`bold_range_selection_failed:${blockIndex + 1}`);
+    await page.keyboard.press("Control+B");
+    await page.waitForTimeout(350);
+    if (!await verifyBoldBlocks(frame, [expected])) {
+      throw new Error(`bold_shortcut_verification_failed:${blockIndex + 1}`);
     }
-
-    const selectedAfterRetry = await target.evaluate((element) =>
-      element.classList.contains("se-is-text-paragraph-block-selected")
-    ).catch(() => false);
-    if (!blockSelected && !selectedAfterRetry) {
-      throw new Error(`bold_block_selection_failed:${blockIndex + 1}`);
-    }
-
-    await boldButton.click();
-    await page.waitForTimeout(450);
-
-    const boldApplied = await verifyBoldBlocks(frame, [expected]);
-    if (!boldApplied) throw new Error(`bold_block_toolbar_failed:${blockIndex + 1}`);
     out(`bold_block_${blockIndex + 1}_postprocessed`, true);
   }
 
@@ -930,7 +944,7 @@ async function applyBoldBlocks(frame, page, boldBlocks = []) {
   const count = await bodyBlocks.count();
   if (count) {
     const last = bodyBlocks.nth(count - 1);
-    await last.click();
+    await last.focus();
     await page.keyboard.press("Control+End");
   }
 }
