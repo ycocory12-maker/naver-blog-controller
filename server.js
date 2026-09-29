@@ -657,7 +657,7 @@ async function clearExistingBody(frame, page) {
     const before = await images.count();
     const target = images.nth(before - 1);
     await target.scrollIntoViewIfNeeded();
-    await target.click({ position: { x: 10, y: 10 } });
+    await target.click({ position: { x: 10, y: 10 }, noWaitAfter: true });
     await page.keyboard.press("Backspace");
     await page.waitForTimeout(500);
     if (await images.count() >= before) {
