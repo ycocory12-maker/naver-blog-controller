@@ -197,8 +197,23 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function loadJob() {
+function readJobPayload() {
   const job = JSON.parse(fs.readFileSync(path.join(ROOT, JOB_FILE), "utf8"));
+  if (job && job.content_id && Array.isArray(job.images)) {
+    const safeContentId = String(job.content_id).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
+    job.images = job.images.map((image, index) => {
+      const value = String(image || "");
+      if (/^(?:\.\.\/)?tmp\/work4-runtime-\d+\.jpg$/i.test(value)) {
+        return `../tmp/work4-runtime-${safeContentId}-${index + 1}.jpg`;
+      }
+      return image;
+    });
+  }
+  return job;
+}
+
+function loadJob() {
+  const job = readJobPayload();
   if (!job.content_id || !job.title || !Array.isArray(job.body_parts) || !Array.isArray(job.images)) {
     throw new Error("invalid_job_payload");
   }
@@ -1518,7 +1533,7 @@ async function handleWork3Chunk(req, res, url) {
     return;
   }
   try {
-    const job = loadJob();
+    const job = readJobPayload();
     const work3ContentId = safeRuntimeContentId(job.content_id);
     const suppliedContentId = String(url.searchParams.get("content_id") || "").trim();
     if (suppliedContentId && suppliedContentId !== String(job.content_id)) {
@@ -1567,11 +1582,21 @@ async function handleWork3Chunk(req, res, url) {
 }
 
 async function hydrateRuntimeWork3ImagesFromEnv() {
-  const job = loadJob();
+  const job = readJobPayload();
   const work3ContentId = safeRuntimeContentId(job.content_id);
   const count = Number(process.env.WORK3_SHEET_CHUNKS || 0);
   if (!Number.isInteger(count) || count <= 0) return false;
   if (count > 20) throw new Error("work3_env_chunk_count_invalid");
+
+  const envContentId = String(process.env.WORK3_CONTENT_ID || "").trim();
+  if (!envContentId || envContentId !== String(job.content_id)) {
+    out("work3_env_sheet_skipped", {
+      reason: !envContentId ? "missing_content_id" : "content_id_mismatch",
+      env_content_id: envContentId,
+      job_content_id: String(job.content_id),
+    });
+    return false;
+  }
 
   const parts = [];
   for (let i = 0; i < count; i += 1) {
@@ -1606,7 +1631,7 @@ async function handleWork3Upload(req, res) {
 
   try {
     const payload = await readJsonRequest(req);
-    const job = JSON.parse(fs.readFileSync(path.join(ROOT, JOB_FILE), "utf8"));
+    const job = readJobPayload();
     const suppliedContentId = String(payload?.content_id || "").trim();
     if (suppliedContentId && suppliedContentId !== String(job.content_id)) {
       throw new Error(`work3_content_id_mismatch:${suppliedContentId}!=${job.content_id}`);
