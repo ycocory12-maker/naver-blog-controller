@@ -1086,10 +1086,13 @@ async function visibleFirst(locator) {
   return null;
 }
 
-async function prepareUploadImage(page, absolutePath, index) {
-  const runtimeOverride = path.join("/tmp", `work4-runtime-${index}.jpg`);
+async function prepareUploadImage(page, absolutePath, index, contentId) {
+  const runtimeOverride = runtimeWork3ImagePath(contentId, index);
   if (index <= 4 && fs.existsSync(runtimeOverride)) {
-    out(`image_${index}_runtime_work3_override`, true);
+    out(`image_${index}_runtime_work3_override`, {
+      content_id: String(contentId),
+      path: runtimeOverride,
+    });
     return runtimeOverride;
   }
   if (path.extname(absolutePath).toLowerCase() !== ".svg") return absolutePath;
@@ -1113,8 +1116,8 @@ async function prepareUploadImage(page, absolutePath, index) {
   }
 }
 
-async function uploadImage(frame, page, absolutePath, index) {
-  const uploadPath = await prepareUploadImage(page, absolutePath, index);
+async function uploadImage(frame, page, absolutePath, index, contentId) {
+  const uploadPath = await prepareUploadImage(page, absolutePath, index, contentId);
   const before = await frame.locator(".se-component.se-image").count();
 
   // Reuse Smart Editor's native file input when it already exists. This avoids
@@ -1367,7 +1370,7 @@ async function runJob() {
       : "";
 
     for (let i = 0; i < job.images.length; i += 1) {
-      await uploadImage(frame, page, path.join(ROOT, job.images[i]), i + 1);
+      await uploadImage(frame, page, path.join(ROOT, job.images[i]), i + 1, job.content_id);
       const bodyPart = (i === job.images.length - 1 && tagLine)
         ? `${job.body_parts[i]}\n\n${tagLine}`
         : job.body_parts[i];
@@ -1375,7 +1378,7 @@ async function runJob() {
     }
 
     // 모든 글의 마지막에는 사무실 연락처 이미지를 고정한다.
-    await uploadImage(frame, page, path.join(ROOT, job.footer_image), job.images.length + 1);
+    await uploadImage(frame, page, path.join(ROOT, job.footer_image), job.images.length + 1, job.content_id);
 
     const bodyText = (await frame.locator(".se-component.se-text").allInnerTexts()).join("\n");
     result.body_entered = bodyMatchesJob(bodyText, job);
@@ -1470,7 +1473,18 @@ function readJsonRequest(req, maxBytes = 8 * 1024 * 1024) {
   });
 }
 
-async function finalizeWork3Sheet(sheetPath) {
+function safeRuntimeContentId(contentId) {
+  const value = String(contentId || "").trim();
+  if (!value) throw new Error("runtime_content_id_required");
+  return value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
+}
+
+function runtimeWork3ImagePath(contentId, index) {
+  return path.join("/tmp", `work4-runtime-${safeRuntimeContentId(contentId)}-${index}.jpg`);
+}
+
+async function finalizeWork3Sheet(sheetPath, contentId) {
+  const safeContentId = safeRuntimeContentId(contentId);
   const meta = await sharp(sheetPath).metadata();
   const width = meta.width || 0;
   const height = meta.height || 0;
@@ -1488,8 +1502,11 @@ async function finalizeWork3Sheet(sheetPath) {
       .extract(crops[i])
       .resize(600, 400, { fit: "fill" })
       .jpeg({ quality: 86 })
-      .toFile(path.join("/tmp", `work4-runtime-${i + 1}.jpg`));
-    out(`work3_sheet_crop_${i + 1}_ready`, true);
+      .toFile(runtimeWork3ImagePath(safeContentId, i + 1));
+    out(`work3_sheet_crop_${i + 1}_ready`, {
+      content_id: safeContentId,
+      path: runtimeWork3ImagePath(safeContentId, i + 1),
+    });
   }
 }
 
@@ -1501,6 +1518,13 @@ async function handleWork3Chunk(req, res, url) {
     return;
   }
   try {
+    const job = loadJob();
+    const work3ContentId = safeRuntimeContentId(job.content_id);
+    const suppliedContentId = String(url.searchParams.get("content_id") || "").trim();
+    if (suppliedContentId && suppliedContentId !== String(job.content_id)) {
+      throw new Error(`work3_content_id_mismatch:${suppliedContentId}!=${job.content_id}`);
+    }
+
     const part = Number(url.searchParams.get("part"));
     const total = Number(url.searchParams.get("total"));
     const data = url.searchParams.get("data") || "";
@@ -1509,7 +1533,7 @@ async function handleWork3Chunk(req, res, url) {
     }
     if (!data || data.length > 12000) throw new Error("invalid_chunk_size");
 
-    const dir = path.join("/tmp", "work3-sheet-chunks");
+    const dir = path.join("/tmp", `work3-sheet-chunks-${work3ContentId}`);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, String(part).padStart(3, "0") + ".txt"), data, "utf8");
     out("work3_sheet_chunk_received", `${part + 1}/${total}`);
@@ -1525,17 +1549,15 @@ async function handleWork3Chunk(req, res, url) {
     if (buffer.length < 50000 || buffer.length > 3 * 1024 * 1024) throw new Error("invalid_work3_sheet_size");
     if (!(buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff)) throw new Error("work3_sheet_not_jpeg");
 
-    const sheetPath = path.join("/tmp", "work3-sheet.jpg");
+    const sheetPath = path.join("/tmp", `work3-sheet-${work3ContentId}.jpg`);
     fs.writeFileSync(sheetPath, buffer);
-    await finalizeWork3Sheet(sheetPath);
+    await finalizeWork3Sheet(sheetPath, work3ContentId);
     for (const name of files) fs.unlinkSync(path.join(dir, name));
-    let work3ContentId = "";
-    try {
-      work3ContentId = String(loadJob().content_id || "");
-      updatePipelineStage(work3ContentId, "work3", { status: "DONE", source: "chunk_upload" });
-    } catch (error) {
-      out("pipeline_work3_state_error", error.message);
-    }
+    updatePipelineStage(String(job.content_id || ""), "work3", {
+      status: "DONE",
+      source: "chunk_upload",
+      runtime_content_id: work3ContentId,
+    });
     res.end(JSON.stringify({ ok: true, completed: true, action: "draft_run_started", content_id: work3ContentId }));
     setImmediate(() => startWork4Run("work3_chunk_upload").catch((error) => out("controller_error", error.message)));
   } catch (error) {
@@ -1545,6 +1567,8 @@ async function handleWork3Chunk(req, res, url) {
 }
 
 async function hydrateRuntimeWork3ImagesFromEnv() {
+  const job = loadJob();
+  const work3ContentId = safeRuntimeContentId(job.content_id);
   const count = Number(process.env.WORK3_SHEET_CHUNKS || 0);
   if (!Number.isInteger(count) || count <= 0) return false;
   if (count > 20) throw new Error("work3_env_chunk_count_invalid");
@@ -1565,10 +1589,10 @@ async function hydrateRuntimeWork3ImagesFromEnv() {
     throw new Error("work3_env_sheet_not_jpeg");
   }
 
-  const sheetPath = path.join("/tmp", "work3-sheet-env.jpg");
+  const sheetPath = path.join("/tmp", `work3-sheet-env-${work3ContentId}.jpg`);
   fs.writeFileSync(sheetPath, buffer);
-  await finalizeWork3Sheet(sheetPath);
-  out("work3_env_sheet_hydrated", buffer.length);
+  await finalizeWork3Sheet(sheetPath, work3ContentId);
+  out("work3_env_sheet_hydrated", { content_id: work3ContentId, bytes: buffer.length });
   return true;
 }
 
@@ -1583,6 +1607,10 @@ async function handleWork3Upload(req, res) {
   try {
     const payload = await readJsonRequest(req);
     const job = JSON.parse(fs.readFileSync(path.join(ROOT, JOB_FILE), "utf8"));
+    const suppliedContentId = String(payload?.content_id || "").trim();
+    if (suppliedContentId && suppliedContentId !== String(job.content_id)) {
+      throw new Error(`work3_content_id_mismatch:${suppliedContentId}!=${job.content_id}`);
+    }
     const expectedCount = Array.isArray(job.images) ? job.images.length : 0;
     if (!payload || !Array.isArray(payload.images) || !expectedCount || payload.images.length !== expectedCount) {
       throw new Error(`work3_image_count_required:${expectedCount}`);
