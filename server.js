@@ -1925,6 +1925,19 @@ async function applyHighlightBlocks(frame, page, phrases, color) {
       continue;
     }
     if (!await selectEditorTextRange(frame, phrase)) throw new Error(`highlight_target_missing:${index + 1}`);
+    const toolbarCandidates = await frame.locator("button, [role='button']").evaluateAll((elements) =>
+      elements.map((element) => ({
+        tag: element.tagName,
+        cls: typeof element.className === "string" ? element.className : "",
+        aria: element.getAttribute("aria-label") || "",
+        title: element.getAttribute("title") || "",
+        text: (element.textContent || "").trim().slice(0, 80),
+        dataName: element.getAttribute("data-name") || "",
+      })).filter((item) => /형광|배경|background|highlight|color/i.test(
+        [item.cls, item.aria, item.title, item.text, item.dataName].join(" ")
+      )).slice(0, 80)
+    ).catch(() => []);
+    out("highlight_toolbar_candidates", toolbarCandidates);
     const applied = await frame.evaluate((requestedColor) => {
       document.execCommand("styleWithCSS", false, true);
       let ok = document.execCommand("hiliteColor", false, requestedColor);
@@ -1943,6 +1956,13 @@ async function applyHighlightBlocks(frame, page, phrases, color) {
       return ok;
     }, color).catch(() => false);
     out(`highlight_block_${index + 1}_command`, applied);
+    const selectedHtml = await frame.locator(".se-component.se-text").evaluateAll((elements, value) => {
+      const normalize = (text) => (text || "").replace(/[\\s\\u200B\\uFEFF]/g, "");
+      const wanted = normalize(value);
+      const element = elements.find((candidate) => normalize(candidate.textContent).includes(wanted));
+      return element ? element.innerHTML.slice(0, 5000) : "";
+    }, phrase).catch(() => "");
+    out(`highlight_block_${index + 1}_html`, selectedHtml);
     await page.waitForTimeout(500);
     if (!await verifyHighlightBlocks(frame, [phrase])) {
       throw new Error(`highlight_verification_failed:${index + 1}`);
