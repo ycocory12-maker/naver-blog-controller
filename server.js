@@ -1940,7 +1940,72 @@ async function applyHighlightBlocks(frame, page, phrases, color) {
       })).filter((item) => item.visible).slice(0, 220)
     ).catch(() => []);
     out("highlight_toolbar_candidates", toolbarCandidates);
-    const applied = await frame.evaluate((requestedColor) => {
+    let nativeApplied = false;
+    const backgroundButton = await visibleFirst(frame.locator("button[data-name='background-color'], button.se-background-color-toolbar-button"));
+    if (backgroundButton) {
+      await backgroundButton.click({ force: true });
+      await page.waitForTimeout(600);
+      const paletteResult = await frame.evaluate(() => {
+        const visible = (element) => Boolean(element.offsetWidth || element.offsetHeight || element.getClientRects().length);
+        const parseRgb = (value) => {
+          const values = String(value || "").match(/\\d+/g);
+          return values && values.length >= 3 ? values.slice(0, 3).map(Number) : null;
+        };
+        const target = [255, 242, 168];
+        const all = Array.from(document.querySelectorAll("[data-color], [data-value], button, [role='button'], span"));
+        const candidates = [];
+        for (const element of all) {
+          if (!visible(element)) continue;
+          const cls = typeof element.className === "string" ? element.className : "";
+          const style = element.getAttribute("style") || "";
+          const dataColor = element.getAttribute("data-color") || "";
+          const dataValue = element.getAttribute("data-value") || "";
+          const contextClass = typeof element.parentElement?.className === "string" ? element.parentElement.className : "";
+          const metadata = [cls, contextClass, style, dataColor, dataValue].join(" ");
+          if (!/color|palette|swatch|background/i.test(metadata) && !dataColor && !dataValue) continue;
+          const computed = window.getComputedStyle(element).backgroundColor;
+          const rgb = parseRgb(computed) || parseRgb(style);
+          candidates.push({
+            element,
+            tag: element.tagName,
+            cls,
+            style,
+            dataColor,
+            dataValue,
+            computed,
+            rgb,
+            text: (element.textContent || "").trim().slice(0, 40),
+          });
+        }
+        const yellow = candidates.filter((item) => item.rgb &&
+          item.rgb[0] >= 225 && item.rgb[1] >= 195 && item.rgb[2] >= 80 && item.rgb[2] <= 220 &&
+          item.rgb[0] + item.rgb[1] + item.rgb[2] < 735
+        );
+        yellow.sort((a, b) => {
+          const score = (item) => item.rgb.reduce((sum, value, index) => sum + Math.pow(value - target[index], 2), 0);
+          return score(a) - score(b);
+        });
+        const selected = yellow[0] || null;
+        if (selected) {
+          const clickable = selected.element.closest("button, [role='button'], li, a") || selected.element;
+          clickable.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+          clickable.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+          clickable.click();
+        }
+        return {
+          selected: selected ? {
+            tag: selected.tag, cls: selected.cls, style: selected.style,
+            dataColor: selected.dataColor, dataValue: selected.dataValue,
+            computed: selected.computed, rgb: selected.rgb, text: selected.text,
+          } : null,
+          candidates: candidates.slice(0, 120).map(({element, ...item}) => item),
+        };
+      }).catch(() => ({ selected: null, candidates: [] }));
+      out("highlight_palette_result", paletteResult);
+      nativeApplied = Boolean(paletteResult.selected);
+      await page.waitForTimeout(600);
+    }
+    const applied = nativeApplied || await frame.evaluate((requestedColor) => {
       document.execCommand("styleWithCSS", false, true);
       let ok = document.execCommand("hiliteColor", false, requestedColor);
       if (!ok) ok = document.execCommand("backColor", false, requestedColor);
