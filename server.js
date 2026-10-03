@@ -1102,8 +1102,11 @@ async function visibleFirst(locator) {
 }
 
 async function prepareUploadImage(page, absolutePath, index, contentId) {
-  const runtimeOverride = runtimeWork3ImagePath(contentId, index);
-  if (index <= 4 && fs.existsSync(runtimeOverride)) {
+  const runtimeOverride = [
+    runtimeWork3ImagePath(contentId, index, "jpg"),
+    runtimeWork3ImagePath(contentId, index, "png"),
+  ].find((candidate) => fs.existsSync(candidate));
+  if (index <= 4 && runtimeOverride) {
     out(`image_${index}_runtime_work3_override`, {
       content_id: String(contentId),
       path: runtimeOverride,
@@ -1494,8 +1497,9 @@ function safeRuntimeContentId(contentId) {
   return value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
 }
 
-function runtimeWork3ImagePath(contentId, index) {
-  return path.join("/tmp", `work4-runtime-${safeRuntimeContentId(contentId)}-${index}.jpg`);
+function runtimeWork3ImagePath(contentId, index, extension = "jpg") {
+  const safeExtension = extension === "png" ? "png" : "jpg";
+  return path.join("/tmp", `work4-runtime-${safeRuntimeContentId(contentId)}-${index}.${safeExtension}`);
 }
 
 async function finalizeWork3Sheet(sheetPath, contentId) {
@@ -1633,7 +1637,8 @@ async function handleWork3Upload(req, res) {
     const payload = await readJsonRequest(req);
     const job = readJobPayload();
     const suppliedContentId = String(payload?.content_id || "").trim();
-    if (suppliedContentId && suppliedContentId !== String(job.content_id)) {
+    if (!suppliedContentId) throw new Error("work3_content_id_required");
+    if (suppliedContentId !== String(job.content_id)) {
       throw new Error(`work3_content_id_mismatch:${suppliedContentId}!=${job.content_id}`);
     }
     const expectedCount = Array.isArray(job.images) ? job.images.length : 0;
@@ -1651,10 +1656,21 @@ async function handleWork3Upload(req, res) {
       const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
       const isPng = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
       if (!isJpeg && !isPng) throw new Error(`work3_image_format_invalid_${i + 1}`);
-      const targetPath = path.join(ROOT, job.images[i]);
-      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      const extension = isPng ? "png" : "jpg";
+      const stalePaths = [
+        runtimeWork3ImagePath(job.content_id, i + 1, "jpg"),
+        runtimeWork3ImagePath(job.content_id, i + 1, "png"),
+      ];
+      for (const stalePath of stalePaths) {
+        if (fs.existsSync(stalePath)) fs.unlinkSync(stalePath);
+      }
+      const targetPath = runtimeWork3ImagePath(job.content_id, i + 1, extension);
       fs.writeFileSync(targetPath, buffer);
-      out(`work3_runtime_image_${i + 1}_received`, buffer.length);
+      out(`work3_runtime_image_${i + 1}_received`, {
+        content_id: String(job.content_id),
+        bytes: buffer.length,
+        path: targetPath,
+      });
     }
 
     updatePipelineStage(String(job.content_id || ""), "work3", {
@@ -1824,16 +1840,9 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => out("controller_listening", PORT));
 
-(async () => {
-  try {
-    const hydrated = await hydrateRuntimeWork3ImagesFromEnv();
-    if (RUN_ON_BOOT || hydrated) {
-      out("run_trigger", hydrated ? "work3_env_sheet" : "run_on_boot");
-      startWork4Run(hydrated ? "work3_env_sheet" : "run_on_boot").catch((error) => out("controller_error", error.message));
-    } else {
-      out("run_on_boot", false);
-    }
-  } catch (error) {
-    out("controller_error", error.message);
-  }
+(() => {
+  // Work4 starts only after an authenticated Work3 upload for the same content_id.
+  // Never reuse boot-time environment images or generate replacement images here.
+  out("run_on_boot", false);
+  out("work3_trigger_mode", "explicit_upload_only");
 })();
