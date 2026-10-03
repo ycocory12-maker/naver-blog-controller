@@ -19,11 +19,6 @@ const PIPELINE_STAGE_URLS = {
   work2: process.env.WORK3_TRIGGER_URL || "",
 };
 let work4RunPromise = null;
-let runtimeJobOverride = null;
-const signedUploadNonces = new Set();
-const SIGNED_UPLOAD_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAG0dDZdc2sXvZXcJA8cdyTmbwF1s0EFuvLfoifjoRqm8=
------END PUBLIC KEY-----`;
 
 function loadPipelineState() {
   try {
@@ -203,9 +198,7 @@ function sleep(ms) {
 }
 
 function readJobPayload() {
-  const job = runtimeJobOverride
-    ? JSON.parse(JSON.stringify(runtimeJobOverride))
-    : JSON.parse(fs.readFileSync(path.join(ROOT, JOB_FILE), "utf8"));
+  const job = JSON.parse(fs.readFileSync(path.join(ROOT, JOB_FILE), "utf8"));
   if (job && job.content_id && Array.isArray(job.images)) {
     const safeContentId = String(job.content_id).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
     job.images = job.images.map((image, index) => {
@@ -1699,44 +1692,6 @@ async function handleWork3Upload(req, res) {
   }
 }
 
-async function handleSignedWork4Upload(req, res) {
-  try {
-    const payload = await readJsonRequest(req, 12 * 1024 * 1024);
-    const signed = typeof payload?.signed === "string" ? payload.signed : "";
-    const signature = typeof payload?.signature === "string" ? Buffer.from(payload.signature, "base64") : Buffer.alloc(0);
-    if (!signed || !signature.length || !crypto.verify(null, Buffer.from(signed, "utf8"), SIGNED_UPLOAD_PUBLIC_KEY, signature)) throw new Error("signed_upload_signature_invalid");
-    const envelope = JSON.parse(signed);
-    const expiresAt = Date.parse(envelope.expires_at || "");
-    const nonce = String(envelope.nonce || "");
-    const job = envelope.job;
-    if (!Number.isFinite(expiresAt) || expiresAt < Date.now() || expiresAt > Date.now() + 60 * 60 * 1000) throw new Error("signed_upload_expired");
-    if (!nonce || signedUploadNonces.has(nonce)) throw new Error("signed_upload_replay");
-    if (!job || String(job.content_id) !== "007" || job.publish_mode !== "draft_only") throw new Error("signed_upload_job_forbidden");
-    if (!Array.isArray(payload.images) || payload.images.length !== 4 || !Array.isArray(envelope.image_sha256) || envelope.image_sha256.length !== 4) throw new Error("signed_upload_image_count_invalid");
-    const runtimeImages = [];
-    for (let i = 0; i < payload.images.length; i += 1) {
-      const buffer = Buffer.from(String(payload.images[i] || ""), "base64");
-      if (buffer.length < 10000 || buffer.length > 2 * 1024 * 1024) throw new Error(`signed_upload_image_size_${i + 1}`);
-      const isPng = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
-      if (!isPng) throw new Error(`signed_upload_image_format_${i + 1}`);
-      const digest = crypto.createHash("sha256").update(buffer).digest("hex");
-      if (digest !== envelope.image_sha256[i]) throw new Error(`signed_upload_image_hash_${i + 1}`);
-      const target = runtimeWork3ImagePath(job.content_id, i + 1, "png");
-      fs.writeFileSync(target, buffer);
-      runtimeImages.push(`../tmp/${path.basename(target)}`);
-    }
-    signedUploadNonces.add(nonce);
-    runtimeJobOverride = { ...job, images: runtimeImages, publish_mode: "draft_only", force_new_page: true, replace_existing_draft: false };
-    updatePipelineStage("007", "work3", { status: "DONE", source: "signed_upload", image_count: 4 });
-    res.statusCode = 202;
-    res.end(JSON.stringify({ ok: true, action: "draft_run_started", content_id: "007" }));
-    setImmediate(() => startWork4Run("signed_upload").catch((error) => out("controller_error", error.message)));
-  } catch (error) {
-    res.statusCode = 400;
-    res.end(JSON.stringify({ error: error.message }));
-  }
-}
-
 
 async function handleDraftListDiagnostic(req, res) {
   const token = process.env.WORK4_UPLOAD_TOKEN || "";
@@ -1865,10 +1820,6 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "POST" && req.url === "/work4/work3-upload") {
     handleWork3Upload(req, res);
-    return;
-  }
-  if (req.method === "POST" && req.url === "/work4/signed-upload") {
-    handleSignedWork4Upload(req, res);
     return;
   }
   if (req.method === "GET" && parsedUrl.pathname === "/debug/draft-list") {
