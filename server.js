@@ -1799,68 +1799,9 @@ async function handleTargetDiagnostic(req, res) {
   }
 }
 
-
-const ONE_TIME_009_PUBLIC_KEY = "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAbcHjBcPBSanWdBnwAr4kRdPWp9EIaOakGksr9neV4Pw=\n-----END PUBLIC KEY-----";
-const oneTime009Nonces = new Set();
-
-async function handleOneTime009(req, res) {
-  try {
-    const envelope = await readJsonRequest(req, 8 * 1024 * 1024);
-    if (!envelope || typeof envelope.signed !== "string" || typeof envelope.signature !== "string") {
-      throw new Error("signed_envelope_required");
-    }
-    const signedBytes = Buffer.from(envelope.signed, "base64");
-    const signature = Buffer.from(envelope.signature, "base64");
-    if (!crypto.verify(null, signedBytes, ONE_TIME_009_PUBLIC_KEY, signature)) {
-      throw new Error("signature_invalid");
-    }
-    const payload = JSON.parse(signedBytes.toString("utf8"));
-    if (String(payload.content_id) !== "009") throw new Error("content_id_must_be_009");
-    if (!payload.nonce || oneTime009Nonces.has(payload.nonce)) throw new Error("nonce_invalid_or_reused");
-    const expiresAt = Date.parse(payload.expires_at || "");
-    if (!Number.isFinite(expiresAt) || expiresAt < Date.now() || expiresAt > Date.now() + 20 * 60 * 1000) {
-      throw new Error("expiry_invalid");
-    }
-    const job = payload.job;
-    if (!job || String(job.content_id) !== "009") throw new Error("job_content_id_mismatch");
-    if (job.publish_mode !== "draft_only") throw new Error("draft_only_required");
-    if (!Array.isArray(job.images) || job.images.length !== 4) throw new Error("four_images_required");
-    if (!Array.isArray(payload.images) || payload.images.length !== 4) throw new Error("four_payload_images_required");
-    const expectedPaths = [1, 2, 3, 4].map((n) => path.join("/tmp", `work4-runtime-009-${n}.png`));
-    for (let i = 0; i < 4; i += 1) {
-      const resolved = path.resolve(ROOT, String(job.images[i] || ""));
-      if (resolved !== expectedPaths[i]) throw new Error(`image_path_invalid_${i + 1}`);
-      const item = payload.images[i];
-      if (!item || typeof item.data !== "string" || typeof item.sha256 !== "string") {
-        throw new Error(`image_payload_invalid_${i + 1}`);
-      }
-      const bytes = Buffer.from(item.data, "base64");
-      if (bytes.length < 10000 || bytes.length > 2 * 1024 * 1024) throw new Error(`image_size_invalid_${i + 1}`);
-      if (!(bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47)) {
-        throw new Error(`image_png_required_${i + 1}`);
-      }
-      const actual = crypto.createHash("sha256").update(bytes).digest("hex");
-      if (actual !== item.sha256) throw new Error(`image_hash_mismatch_${i + 1}`);
-      fs.writeFileSync(expectedPaths[i], bytes);
-    }
-    fs.writeFileSync(path.join(ROOT, JOB_FILE), JSON.stringify(job, null, 2), "utf8");
-    oneTime009Nonces.add(payload.nonce);
-    res.statusCode = 202;
-    res.end(JSON.stringify({ ok: true, content_id: "009", action: "draft_run_started" }));
-    setImmediate(() => startWork4Run("one_time_signed_009").catch((error) => out("controller_error", error.message)));
-  } catch (error) {
-    res.statusCode = 400;
-    res.end(JSON.stringify({ error: error.message }));
-  }
-}
-
 const server = http.createServer((req, res) => {
   res.setHeader("content-type", "application/json; charset=utf-8");
   const parsedUrl = new URL(req.url, "http://localhost");
-  if (req.method === "POST" && parsedUrl.pathname === "/one-time/work4/009") {
-    handleOneTime009(req, res);
-    return;
-  }
   if (req.method === "POST" && parsedUrl.pathname === "/pipeline/work1-complete") {
     handlePipelineStageComplete(req, res, "work1");
     return;
