@@ -1799,9 +1799,75 @@ async function handleTargetDiagnostic(req, res) {
   }
 }
 
+
+const ONE_TIME_BACKLOG_PUBLIC_KEY = "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA6V4otBQC1nkXbzyyfc6udPF8B6FrqABWAdkPNpkbsHA=\n-----END PUBLIC KEY-----";
+const ONE_TIME_BACKLOG_IDS = new Set(["010","011","012","013","014","015","016","017"]);
+const oneTimeBacklogNonces = new Set();
+
+async function handleOneTimeBacklog(req, res) {
+  try {
+    if (work4RunPromise) {
+      res.statusCode = 409;
+      res.end(JSON.stringify({ error: "work4_run_in_progress" }));
+      return;
+    }
+    const envelope = await readJsonRequest(req, 8 * 1024 * 1024);
+    if (!envelope || typeof envelope.signed !== "string" || typeof envelope.signature !== "string") {
+      throw new Error("signed_envelope_required");
+    }
+    const signedBytes = Buffer.from(envelope.signed, "base64");
+    const signature = Buffer.from(envelope.signature, "base64");
+    if (!crypto.verify(null, signedBytes, ONE_TIME_BACKLOG_PUBLIC_KEY, signature)) {
+      throw new Error("signature_invalid");
+    }
+    const payload = JSON.parse(signedBytes.toString("utf8"));
+    const contentId = String(payload.content_id || "");
+    if (!ONE_TIME_BACKLOG_IDS.has(contentId)) throw new Error("content_id_not_allowed");
+    if (!payload.nonce || oneTimeBacklogNonces.has(payload.nonce)) throw new Error("nonce_invalid_or_reused");
+    const expiresAt = Date.parse(payload.expires_at || "");
+    if (!Number.isFinite(expiresAt) || expiresAt < Date.now() || expiresAt > Date.now() + 45 * 60 * 1000) {
+      throw new Error("expiry_invalid");
+    }
+    const job = payload.job;
+    if (!job || String(job.content_id) !== contentId) throw new Error("job_content_id_mismatch");
+    if (job.publish_mode !== "draft_only") throw new Error("draft_only_required");
+    if (!Array.isArray(job.images) || job.images.length !== 4) throw new Error("four_images_required");
+    if (!Array.isArray(payload.images) || payload.images.length !== 4) throw new Error("four_payload_images_required");
+    const expectedPaths = [1,2,3,4].map((n) => path.join("/tmp", `work4-runtime-${contentId}-${n}.png`));
+    for (let i = 0; i < 4; i += 1) {
+      const resolved = path.resolve(ROOT, String(job.images[i] || ""));
+      if (resolved !== expectedPaths[i]) throw new Error(`image_path_invalid_${i + 1}`);
+      const item = payload.images[i];
+      if (!item || typeof item.data !== "string" || typeof item.sha256 !== "string") {
+        throw new Error(`image_payload_invalid_${i + 1}`);
+      }
+      const bytes = Buffer.from(item.data, "base64");
+      if (bytes.length < 10000 || bytes.length > 2 * 1024 * 1024) throw new Error(`image_size_invalid_${i + 1}`);
+      if (!(bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47)) {
+        throw new Error(`image_png_required_${i + 1}`);
+      }
+      const actual = crypto.createHash("sha256").update(bytes).digest("hex");
+      if (actual !== item.sha256) throw new Error(`image_hash_mismatch_${i + 1}`);
+      fs.writeFileSync(expectedPaths[i], bytes);
+    }
+    fs.writeFileSync(path.join(ROOT, JOB_FILE), JSON.stringify(job, null, 2), "utf8");
+    oneTimeBacklogNonces.add(payload.nonce);
+    res.statusCode = 202;
+    res.end(JSON.stringify({ ok: true, content_id: contentId, action: "draft_run_started" }));
+    setImmediate(() => startWork4Run(`one_time_signed_${contentId}`).catch((error) => out("controller_error", error.message)));
+  } catch (error) {
+    res.statusCode = 400;
+    res.end(JSON.stringify({ error: error.message }));
+  }
+}
+
 const server = http.createServer((req, res) => {
   res.setHeader("content-type", "application/json; charset=utf-8");
   const parsedUrl = new URL(req.url, "http://localhost");
+  if (req.method === "POST" && parsedUrl.pathname === "/one-time/work4/backlog") {
+    handleOneTimeBacklog(req, res);
+    return;
+  }
   if (req.method === "POST" && parsedUrl.pathname === "/pipeline/work1-complete") {
     handlePipelineStageComplete(req, res, "work1");
     return;
