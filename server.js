@@ -1818,7 +1818,7 @@ async function selectEditorTextRange(frame, expected) {
     const candidate = paragraphs.nth(i);
     if (!await candidate.isVisible().catch(() => false)) continue;
     await candidate.scrollIntoViewIfNeeded().catch(() => {});
-    const points = await candidate.evaluate((element, value) => {
+    const caretPlaced = await candidate.evaluate((element, value) => {
       const normalize = (text) => (text || "").replace(/[\s\u200B\uFEFF]/g, "");
       const wanted = normalize(value);
       const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
@@ -1836,43 +1836,34 @@ async function selectEditorTextRange(frame, expected) {
         }
         node = walker.nextNode();
       }
-      const startIndex = compact.indexOf(wanted);
-      if (startIndex < 0 || !wanted.length) return null;
-      const first = chars[startIndex];
-      const last = chars[startIndex + wanted.length - 1];
-      if (!first || !last) return null;
-      const firstRange = document.createRange();
-      firstRange.setStart(first.node, first.offset);
-      firstRange.setEnd(first.node, first.offset + 1);
-      const lastRange = document.createRange();
-      lastRange.setStart(last.node, last.offset);
-      lastRange.setEnd(last.node, last.offset + 1);
-      const firstRect = firstRange.getBoundingClientRect();
-      const lastRect = lastRange.getBoundingClientRect();
-      if (!firstRect.width || !lastRect.width) return null;
-      return {
-        start: { x: firstRect.left + 1, y: firstRect.top + firstRect.height / 2 },
-        end: { x: lastRect.right - 1, y: lastRect.top + lastRect.height / 2 },
-      };
-    }, expected).catch(() => null);
-    if (!points) continue;
-
-    const frameElement = await frame.frameElement();
-    const frameBox = await frameElement.boundingBox();
-    await frameElement.dispose().catch(() => {});
-    if (!frameBox) continue;
-    const mouse = frame.page().mouse;
-    await mouse.move(frameBox.x + points.start.x, frameBox.y + points.start.y);
-    await mouse.down();
-    await mouse.move(frameBox.x + points.end.x, frameBox.y + points.end.y, { steps: 24 });
-    await mouse.up();
-    await frame.page().waitForTimeout(350);
-
-    const selected = await frame.evaluate((value) => {
-      const normalize = (text) => (text || "").replace(/[\s\u200B\uFEFF]/g, "");
-      return normalize(window.getSelection()?.toString()) === normalize(value);
+      const start = compact.indexOf(wanted);
+      if (start < 0 || !wanted.length) return false;
+      const first = chars[start];
+      if (!first) return false;
+      const editable = first.node.parentElement?.closest("[contenteditable='true']");
+      if (!(editable instanceof HTMLElement)) return false;
+      editable.focus();
+      const range = document.createRange();
+      range.setStart(first.node, first.offset);
+      range.collapse(true);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
+      return true;
     }, expected).catch(() => false);
-    out("highlight_mouse_selection_ok", selected);
+    if (!caretPlaced) continue;
+
+    const keyboard = frame.page().keyboard;
+    await keyboard.down("Shift");
+    for (let offset = 0; offset < expected.length; offset += 1) {
+      await keyboard.press("ArrowRight");
+    }
+    await keyboard.up("Shift");
+    await frame.page().waitForTimeout(350);
+    const selectedText = await frame.evaluate(() => window.getSelection()?.toString() || "").catch(() => "");
+    const selected = selectedText === expected;
+    out("highlight_keyboard_selection", { ok: selected, selected: selectedText, expected });
     if (selected) return true;
   }
   return false;
