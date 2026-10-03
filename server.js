@@ -1927,15 +1927,14 @@ async function applyHighlightBlocks(frame, page, phrases, color) {
     if (!await selectEditorTextRange(frame, phrase)) throw new Error(`highlight_target_missing:${index + 1}`);
     const toolbarCandidates = await frame.locator("button, [role='button']").evaluateAll((elements) =>
       elements.map((element) => ({
+        visible: Boolean(element.offsetWidth || element.offsetHeight || element.getClientRects().length),
         tag: element.tagName,
         cls: typeof element.className === "string" ? element.className : "",
         aria: element.getAttribute("aria-label") || "",
         title: element.getAttribute("title") || "",
-        text: (element.textContent || "").trim().slice(0, 80),
+        text: (element.textContent || "").trim().replace(/\\s+/g, " ").slice(0, 100),
         dataName: element.getAttribute("data-name") || "",
-      })).filter((item) => /형광|배경|background|highlight|color/i.test(
-        [item.cls, item.aria, item.title, item.text, item.dataName].join(" ")
-      )).slice(0, 80)
+      })).filter((item) => item.visible).slice(0, 220)
     ).catch(() => []);
     out("highlight_toolbar_candidates", toolbarCandidates);
     const applied = await frame.evaluate((requestedColor) => {
