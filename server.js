@@ -1965,9 +1965,8 @@ async function applyHighlightBlocks(frame, page, phrases, color) {
         const first = chars[start];
         const last = chars[start + wanted.length - 1];
         if (!first || !last) return false;
-        const editable = first.node.parentElement?.closest("[contenteditable='true']");
-        if (!editable) return false;
-        editable.focus();
+        const editable = first.node.parentElement?.closest("[contenteditable='true']") || element;
+        if (editable instanceof HTMLElement) editable.focus();
         const range = document.createRange();
         range.setStart(first.node, first.offset);
         range.setEnd(last.node, last.offset + 1);
