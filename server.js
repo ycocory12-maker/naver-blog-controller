@@ -1938,13 +1938,17 @@ async function applyHighlightBlocks(frame, page, phrases, color) {
       continue;
     }
 
-    let applied = false;
+    let selected = false;
     const paragraphs = frame.locator(".se-component.se-text");
     const count = await paragraphs.count();
-    for (let i = 0; i < count && !applied; i += 1) {
-      applied = await paragraphs.nth(i).evaluate((element, args) => {
+    for (let i = 0; i < count && !selected; i += 1) {
+      const candidate = paragraphs.nth(i);
+      if (!await candidate.isVisible().catch(() => false)) continue;
+      await candidate.scrollIntoViewIfNeeded().catch(() => {});
+      await candidate.click({ force: true }).catch(() => {});
+      selected = await candidate.evaluate((element, value) => {
         const normalize = (text) => (text || "").replace(/[\s\u200B\uFEFF]/g, "");
-        const wanted = normalize(args.phrase);
+        const wanted = normalize(value);
         const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
         const chars = [];
         let compact = "";
@@ -1965,29 +1969,32 @@ async function applyHighlightBlocks(frame, page, phrases, color) {
         const first = chars[start];
         const last = chars[start + wanted.length - 1];
         if (!first || !last) return false;
-        const editable = first.node.parentElement?.closest("[contenteditable='true']") || element;
-        if (editable instanceof HTMLElement) editable.focus();
         const range = document.createRange();
         range.setStart(first.node, first.offset);
         range.setEnd(last.node, last.offset + 1);
         const selection = window.getSelection();
         selection.removeAllRanges();
         selection.addRange(range);
-        document.execCommand("styleWithCSS", false, true);
-        let ok = document.execCommand("hiliteColor", false, args.color);
-        if (!ok) ok = document.execCommand("backColor", false, args.color);
-        editable.dispatchEvent(new InputEvent("input", {
-          bubbles: true,
-          inputType: "formatBackColor",
-          data: null,
-        }));
-        editable.dispatchEvent(new Event("change", { bubbles: true }));
-        return ok;
-      }, { phrase, color }).catch(() => false);
+        const target = last.node.parentElement || element;
+        document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
+        target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+        return normalize(selection.toString()) === wanted;
+      }, phrase).catch(() => false);
     }
-    out(`highlight_block_${index + 1}_direct_command`, applied);
+    out(`highlight_block_${index + 1}_selection_registered`, selected);
+    if (!selected) throw new Error(`highlight_target_missing:${index + 1}`);
+    await page.waitForTimeout(350);
+
+    const backgroundButton = await visibleFirst(frame.locator("button[data-name='background-color'], button.se-background-color-toolbar-button"));
+    if (!backgroundButton) throw new Error("highlight_background_button_missing");
+    await backgroundButton.click({ force: true });
+    await page.waitForTimeout(350);
+    const yellowButton = await visibleFirst(frame.locator("button.se-color-palette[data-color='#fff8b2']"));
+    if (!yellowButton) throw new Error("highlight_yellow_palette_missing");
+    await yellowButton.click({ force: true });
+    out(`highlight_block_${index + 1}_native_palette`, "#fff8b2");
     await page.waitForTimeout(700);
-    if (!applied || !await verifyHighlightBlocks(frame, [phrase])) {
+    if (!await verifyHighlightBlocks(frame, [phrase])) {
       throw new Error(`highlight_verification_failed:${index + 1}`);
     }
   }
