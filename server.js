@@ -1817,6 +1817,8 @@ async function selectEditorTextRange(frame, expected) {
   for (let i = 0; i < count; i += 1) {
     const candidate = paragraphs.nth(i);
     if (!await candidate.isVisible().catch(() => false)) continue;
+    await candidate.scrollIntoViewIfNeeded().catch(() => {});
+    await candidate.click({ force: true }).catch(() => {});
     const selected = await candidate.evaluate((element, value) => {
       const normalize = (text) => (text || "").replace(/[\s\u200B\uFEFF]/g, "");
       const wanted = normalize(value);
@@ -1925,6 +1927,7 @@ async function applyHighlightBlocks(frame, page, phrases, color) {
       continue;
     }
     if (!await selectEditorTextRange(frame, phrase)) throw new Error(`highlight_target_missing:${index + 1}`);
+    await page.waitForTimeout(600);
     const toolbarCandidates = await frame.locator("button, [role='button']").evaluateAll((elements) =>
       elements.map((element) => ({
         visible: Boolean(element.offsetWidth || element.offsetHeight || element.getClientRects().length),
