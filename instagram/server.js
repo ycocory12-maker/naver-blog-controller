@@ -2,13 +2,14 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const { createDashboard } = require("./dashboard");
 
 const PORT = Number(process.env.PORT || 3000);
 const API_VERSION = process.env.INSTAGRAM_API_VERSION || "v26.0";
-const GRAPH_BASE = (process.env.INSTAGRAM_GRAPH_BASE_URL || "https://graph.facebook.com").replace(/\/+$/, "");
+const GRAPH_BASE = (process.env.INSTAGRAM_GRAPH_BASE_URL || "https://graph.instagram.com").replace(/\/+$/, "");
 const ACCESS_TOKEN = process.env.INSTAGRAM_ACCESS_TOKEN || "";
 const IG_ACCOUNT_ID = process.env.INSTAGRAM_ACCOUNT_ID || "";
-const APP_SECRET = process.env.META_APP_SECRET || "";
+const APP_SECRET = process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET || "";
 const VERIFY_TOKEN = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN || "";
 const ADMIN_TOKEN = process.env.INSTAGRAM_ADMIN_TOKEN || "";
 const REPLY_MODE = String(process.env.INSTAGRAM_REPLY_MODE || "review").toLowerCase();
@@ -81,9 +82,10 @@ function safeEqual(a, b) {
 }
 
 function verifyWebhookSignature(rawBody, header) {
-  if (!APP_SECRET) return { ok: false, reason: "META_APP_SECRET_missing" };
+  const secret = runtimeAppSecret();
+  if (!secret) return { ok: false, reason: "INSTAGRAM_APP_SECRET_missing" };
   if (!header || !String(header).startsWith("sha256=")) return { ok: false, reason: "signature_missing" };
-  const expected = "sha256=" + crypto.createHmac("sha256", APP_SECRET).update(rawBody).digest("hex");
+  const expected = "sha256=" + crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
   return { ok: safeEqual(expected, header), reason: "signature_mismatch" };
 }
 
@@ -112,6 +114,30 @@ function saveState(state) {
   const tmp = STATE_FILE + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(state, null, 2), "utf8");
   fs.renameSync(tmp, STATE_FILE);
+}
+
+const dashboard = createDashboard({
+  apiVersion: API_VERSION,
+  publicBaseUrl: PUBLIC_BASE_URL,
+  stateDir: STATE_DIR,
+  getAutomationState: loadState,
+  getReplyMode: () => REPLY_MODE
+});
+
+function runtimeConnection() {
+  return dashboard.getConnection();
+}
+
+function runtimeAccessToken() {
+  return runtimeConnection().accessToken || ACCESS_TOKEN || "";
+}
+
+function runtimeAccountId() {
+  return runtimeConnection().accountId || IG_ACCOUNT_ID || "";
+}
+
+function runtimeAppSecret() {
+  return dashboard.getAppSecret() || APP_SECRET || "";
 }
 
 function rememberProcessed(commentId, result) {
@@ -224,7 +250,8 @@ async function graphRequest(method, endpoint, params, body, attempt) {
       if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
     }
   }
-  if (ACCESS_TOKEN && !url.searchParams.has("access_token")) url.searchParams.set("access_token", ACCESS_TOKEN);
+  const accessToken = runtimeAccessToken();
+  if (accessToken && !url.searchParams.has("access_token")) url.searchParams.set("access_token", accessToken);
 
   let fetchBody;
   if (body !== undefined && body !== null) {
@@ -253,7 +280,7 @@ async function graphRequest(method, endpoint, params, body, attempt) {
 }
 
 async function replyToComment(commentId, message) {
-  if (!ACCESS_TOKEN) throw new Error("INSTAGRAM_ACCESS_TOKEN_missing");
+  if (!runtimeAccessToken()) throw new Error("INSTAGRAM_ACCESS_TOKEN_missing");
   if (!message) throw new Error("reply_message_empty");
   return graphRequest("POST", encodeURIComponent(commentId) + "/replies", { message }, null);
 }
@@ -277,7 +304,8 @@ async function processCommentEvent(event, options) {
     return { skipped: true, reason: "already_processed" };
   }
 
-  if (event.from_id && IG_ACCOUNT_ID && event.from_id === IG_ACCOUNT_ID) {
+  const currentAccountId = runtimeAccountId();
+  if (event.from_id && currentAccountId && event.from_id === currentAccountId) {
     if (!dryRun) rememberProcessed(event.comment_id, { skipped: "self_comment" });
     return { skipped: true, reason: "self_comment" };
   }
@@ -378,11 +406,13 @@ function saveJpegBase64(value) {
 }
 
 async function createImageContainer(imageUrl, caption, isCarouselItem, altText) {
+  const accountId = runtimeAccountId();
+  if (!accountId) throw new Error("INSTAGRAM_ACCOUNT_ID_missing");
   const params = { image_url: imageUrl };
   if (caption) params.caption = caption;
   if (isCarouselItem) params.is_carousel_item = "true";
   if (altText) params.alt_text = altText;
-  return graphRequest("POST", encodeURIComponent(IG_ACCOUNT_ID) + "/media", params, null);
+  return graphRequest("POST", encodeURIComponent(accountId) + "/media", params, null);
 }
 
 async function waitContainerReady(containerId) {
@@ -397,8 +427,9 @@ async function waitContainerReady(containerId) {
 }
 
 async function publishImages(payload) {
-  if (!ACCESS_TOKEN) throw new Error("INSTAGRAM_ACCESS_TOKEN_missing");
-  if (!IG_ACCOUNT_ID) throw new Error("INSTAGRAM_ACCOUNT_ID_missing");
+  if (!runtimeAccessToken()) throw new Error("INSTAGRAM_ACCESS_TOKEN_missing");
+  const accountId = runtimeAccountId();
+  if (!accountId) throw new Error("INSTAGRAM_ACCOUNT_ID_missing");
   if (!PUBLIC_BASE_URL) throw new Error("INSTAGRAM_PUBLIC_BASE_URL_missing");
   if (!MEDIA_SECRET) throw new Error("INSTAGRAM_MEDIA_SIGNING_SECRET_missing");
 
@@ -428,7 +459,7 @@ async function publishImages(payload) {
         await waitContainerReady(created.id);
         children.push(created.id);
       }
-      const parent = await graphRequest("POST", encodeURIComponent(IG_ACCOUNT_ID) + "/media", {
+      const parent = await graphRequest("POST", encodeURIComponent(accountId) + "/media", {
         media_type: "CAROUSEL",
         caption,
         children: children.join(",")
@@ -438,7 +469,7 @@ async function publishImages(payload) {
       await waitContainerReady(creationId);
     }
 
-    const published = await graphRequest("POST", encodeURIComponent(IG_ACCOUNT_ID) + "/media_publish", {
+    const published = await graphRequest("POST", encodeURIComponent(accountId) + "/media_publish", {
       creation_id: creationId
     }, null);
 
@@ -484,6 +515,8 @@ function cleanupMedia() {
 }
 
 function statusPayload() {
+  const connection = runtimeConnection();
+  const dashboardStatus = dashboard.dashboardStatus();
   return {
     ok: true,
     service: "instagram-automation",
@@ -491,14 +524,15 @@ function statusPayload() {
     reply_mode: REPLY_MODE,
     auto_categories: Array.from(AUTO_CATEGORIES),
     configured: {
-      access_token: Boolean(ACCESS_TOKEN),
-      account_id: Boolean(IG_ACCOUNT_ID),
-      app_secret: Boolean(APP_SECRET),
+      access_token: Boolean(connection.accessToken),
+      account_id: Boolean(connection.accountId),
+      app_secret: Boolean(runtimeAppSecret()),
       verify_token: Boolean(VERIFY_TOKEN),
       admin_token: Boolean(ADMIN_TOKEN),
       public_base_url: Boolean(PUBLIC_BASE_URL),
       media_signing_secret: Boolean(MEDIA_SECRET)
     },
+    instagram: dashboardStatus,
     public_base_url: PUBLIC_BASE_URL || null,
     state_dir: STATE_DIR
   };
@@ -507,7 +541,9 @@ function statusPayload() {
 async function route(req, res) {
   const url = new URL(req.url, "http://localhost");
 
-  if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/health")) {
+  if (await dashboard.handle(req, res, url)) return;
+
+  if (req.method === "GET" && url.pathname === "/health") {
     return json(res, 200, statusPayload());
   }
 
@@ -618,8 +654,9 @@ async function route(req, res) {
   }
 
   if (req.method === "GET" && url.pathname === "/instagram/quota") {
-    if (!IG_ACCOUNT_ID) return json(res, 400, { error: "INSTAGRAM_ACCOUNT_ID_missing" });
-    const result = await graphRequest("GET", encodeURIComponent(IG_ACCOUNT_ID) + "/content_publishing_limit", {
+    const accountId = runtimeAccountId();
+    if (!accountId) return json(res, 400, { error: "INSTAGRAM_ACCOUNT_ID_missing" });
+    const result = await graphRequest("GET", encodeURIComponent(accountId) + "/content_publishing_limit", {
       fields: "config,quota_usage"
     }, null);
     return json(res, 200, result);
