@@ -242,7 +242,7 @@ function createDashboard(options = {}) {
       "<section class='hero' style='margin-top:9vh'><div class='eyebrow'>Instagram Automation</div><h1 class='title'>관리자 로그인</h1>" +
       "<p class='muted'>Instagram 계정 연결과 자동화 설정을 안전하게 관리합니다.</p>" +
       (errorText ? "<div class='errorbox'>" + htmlEscape(errorText) + "</div>" : "") +
-      "<form method='post' action='/ui/login'><div class='label'>관리 비밀번호</div><input class='field' type='password' name='password' inputmode='numeric' autocomplete='current-password' placeholder='비밀번호 입력' required>" +
+      "<form method='post' action='/ui/login'><div class='label'>관리 비밀번호</div><input class='field' type='password' name='password' autocomplete='current-password' placeholder='비밀번호 입력' required>" +
       "<button class='button primary full' style='margin-top:14px' type='submit'>로그인</button></form>" +
       "<p class='tiny' style='margin-top:14px'>비밀번호는 브라우저에 표시되지 않으며 서버의 환경변수와 비교합니다.</p></section></main></body></html>";
   }
@@ -343,8 +343,9 @@ function createDashboard(options = {}) {
     return data;
   }
 
-  async function subscribeComments(token) {
-    const url = new URL("https://graph.instagram.com/" + apiVersion + "/me/subscribed_apps");
+  async function subscribeComments(token, userId) {
+    if (!userId) throw new Error("Instagram 계정 ID가 없어 댓글 구독을 설정할 수 없습니다.");
+    const url = new URL("https://graph.instagram.com/" + apiVersion + "/" + encodeURIComponent(userId) + "/subscribed_apps");
     url.searchParams.set("subscribed_fields", "comments");
     url.searchParams.set("access_token", token);
     const response = await fetch(url, { method: "POST" });
@@ -479,7 +480,7 @@ function createDashboard(options = {}) {
         saveConnectionState(state);
 
         try {
-          await subscribeComments(longToken.access_token);
+          await subscribeComments(longToken.access_token, userId);
           const updated = loadConnectionState();
           updated.oauth.subscription_ok = true;
           updated.oauth.subscription_error = "";
