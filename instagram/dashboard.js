@@ -286,6 +286,7 @@ function createDashboard(options = {}) {
       "<div class='label'>Instagram App ID</div><input class='field' name='app_id' value='" + htmlEscape(creds.appId) + "' placeholder='예: 123456789012345' required>" +
       "<div class='label'>Instagram App Secret</div><input class='field' type='password' name='app_secret' placeholder='" + (creds.appSecret ? "등록됨 · 변경할 때만 입력" : "Instagram App Secret 입력") + "' " + (creds.appSecret ? "" : "required") + ">" +
       "<button class='button secondary' style='margin-top:12px' type='submit'>Meta 앱 정보 저장</button></form>" +
+      "<div class='notice' style='margin-top:14px'><b>로그인 화면에서 “페이지를 사용할 수 없습니다”가 뜨면</b><br>Meta for Developers → 해당 앱 → Instagram → API setup with Instagram login → <b>Business Login settings</b>에서 아래 Redirect URI를 정확히 등록하고, App ID가 이 Instagram 설정 화면에 표시된 <b>Instagram App ID</b>인지 확인해주세요.</div>" +
       "<div class='label'>Meta에 등록할 OAuth Redirect URI</div><div class='code'>" + htmlEscape(redirectUri) + "</div>" +
       "<div class='label'>Webhook Callback URL</div><div class='code'>" + htmlEscape(webhookUrl) + "</div>" +
       "<div class='label'>Webhook Verify Token</div><div class='code'>" + htmlEscape(verifyToken || "서버 설정 필요") + "</div>" +
@@ -441,7 +442,7 @@ function createDashboard(options = {}) {
       auth.searchParams.set("scope", "instagram_business_basic,instagram_business_content_publish,instagram_business_manage_comments");
       auth.searchParams.set("state", state);
       auth.searchParams.set("enable_fb_login", "0");
-      auth.searchParams.set("force_authentication", "1");
+      auth.searchParams.set("force_reauth", "true");
       redirect(res, auth.toString());
       return true;
     }
