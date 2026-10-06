@@ -1876,7 +1876,7 @@ async function handleTargetDiagnostic(req, res) {
 }
 
 
-const ONCE_018_TOKEN_HASH = "f54a5c527b6192604297a4eaec9fcf5d850261b8b11173b6ffeb5c3d39f3dd02";
+const ONCE_018_TOKEN_HASH = "976d0d8afa5cc80032239cb4cae444a73805495fb58ce93cd3e9400afd00b104";
 const ONCE_018_TITLE = "변호사 착수금·성공보수 세금계산서, 입금일만 보면 안 됩니다";
 const ONCE_018_MARKER = "/tmp/work4-once-018-consumed";
 
