@@ -8,6 +8,7 @@ const sharp = require("sharp");
 const PORT = Number(process.env.PORT || 3000);
 const RUN_ON_BOOT = process.env.RUN_ON_BOOT === "true";
 const JOB_FILE = process.env.JOB_FILE || "jobs/001.json";
+const RUNTIME_JOB_FILE = process.env.RUNTIME_JOB_FILE || "/tmp/work4-runtime-job.json";
 const ROOT = __dirname;
 
 let lastResult = { status: "IDLE", published: false };
@@ -198,7 +199,8 @@ function sleep(ms) {
 }
 
 function readJobPayload() {
-  const job = JSON.parse(fs.readFileSync(path.join(ROOT, JOB_FILE), "utf8"));
+  const jobPath = fs.existsSync(RUNTIME_JOB_FILE) ? RUNTIME_JOB_FILE : path.join(ROOT, JOB_FILE);
+  const job = JSON.parse(fs.readFileSync(jobPath, "utf8"));
   if (job && job.content_id && Array.isArray(job.images)) {
     const safeContentId = String(job.content_id).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
     job.images = job.images.map((image, index) => {
@@ -1106,7 +1108,7 @@ async function prepareUploadImage(page, absolutePath, index, contentId) {
     runtimeWork3ImagePath(contentId, index, "jpg"),
     runtimeWork3ImagePath(contentId, index, "png"),
   ].find((candidate) => fs.existsSync(candidate));
-  if (index <= 4 && runtimeOverride) {
+  if (runtimeOverride) {
     out(`image_${index}_runtime_work3_override`, {
       content_id: String(contentId),
       path: runtimeOverride,
@@ -1625,6 +1627,80 @@ async function hydrateRuntimeWork3ImagesFromEnv() {
   return true;
 }
 
+
+function validateRuntimeJobPayload(job) {
+  if (!job || typeof job !== "object" || Array.isArray(job)) throw new Error("invalid_job_payload");
+  if (!job.content_id || !job.title || !Array.isArray(job.body_parts) || !Array.isArray(job.images)) {
+    throw new Error("invalid_job_payload");
+  }
+  if (job.publish_mode !== "draft_only") throw new Error("publish_mode_must_be_draft_only");
+  if (!job.body_parts.length || job.images.length !== job.body_parts.length) {
+    throw new Error("image_body_mapping_mismatch");
+  }
+  if (!job.footer_image) throw new Error("footer_image_required");
+  if (job.body_parts.some((part) => typeof part !== "string")) throw new Error("body_parts_must_be_strings");
+
+  const safeContentId = safeRuntimeContentId(job.content_id);
+  const escapedContentId = safeContentId.replace(/\\./g, "\\\\.");
+  job.images.forEach((image, index) => {
+    const value = String(image || "");
+    const expected = new RegExp("^\\.\\.\\/tmp\\/work4-runtime-" + escapedContentId + "-" + (index + 1) + "\\.(?:jpg|png)$", "i");
+    if (!expected.test(value)) throw new Error("runtime_image_path_required_" + (index + 1));
+  });
+
+  const assetsRoot = path.resolve(ROOT, "assets") + path.sep;
+  const footerPath = path.resolve(ROOT, String(job.footer_image));
+  if (!footerPath.startsWith(assetsRoot) || !fs.existsSync(footerPath)) {
+    throw new Error("footer_image_invalid");
+  }
+
+  const preflight = job.preflight || {};
+  const normalizedBody = [job.intro_part || "", ...job.body_parts]
+    .join("\n")
+    .replace(/[\s\u200B\uFEFF]/g, "");
+  const minChars = Number(preflight.min_normalized_chars || 0);
+  const minTags = Number(preflight.min_tags || 0);
+  const requiredImages = Number(preflight.required_image_count || job.images.length);
+  if (minChars && normalizedBody.length < minChars) throw new Error("preflight_content_too_short");
+  if (minTags && (!Array.isArray(job.tags) || job.tags.length < minTags)) throw new Error("preflight_tags_missing");
+  if (requiredImages && job.images.length !== requiredImages) throw new Error("preflight_image_count_failed");
+  if (preflight.require_main_keyword && !job.main_keyword) throw new Error("preflight_main_keyword_missing");
+  if (preflight.require_generated_images && !["WORK3_imagegen", "WORK3_designed_from_imagegen"].includes(job.image_source)) {
+    throw new Error("preflight_generated_images_missing");
+  }
+  return job;
+}
+
+async function handleJobUpload(req, res) {
+  const token = process.env.WORK4_UPLOAD_TOKEN || "";
+  if (!token || req.headers["x-work4-token"] !== token) {
+    res.statusCode = 403;
+    res.end(JSON.stringify({ error: "forbidden" }));
+    return;
+  }
+  try {
+    const payload = validateRuntimeJobPayload(await readJsonRequest(req, 2 * 1024 * 1024));
+    const serialized = JSON.stringify(payload, null, 2);
+    const tmp = RUNTIME_JOB_FILE + ".tmp";
+    fs.writeFileSync(tmp, serialized, "utf8");
+    fs.renameSync(tmp, RUNTIME_JOB_FILE);
+    out("runtime_job_uploaded", {
+      content_id: String(payload.content_id),
+      expected_image_count: payload.images.length,
+    });
+    res.statusCode = 202;
+    res.end(JSON.stringify({
+      ok: true,
+      content_id: String(payload.content_id),
+      expected_image_count: payload.images.length,
+      action: "job_uploaded_awaiting_images",
+    }));
+  } catch (error) {
+    res.statusCode = 400;
+    res.end(JSON.stringify({ error: error.message }));
+  }
+}
+
 async function handleWork3Upload(req, res) {
   const token = process.env.WORK4_UPLOAD_TOKEN || "";
   if (!token || req.headers["x-work4-token"] !== token) {
@@ -1816,6 +1892,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "GET" && parsedUrl.pathname === "/work4/work3-chunk") {
     handleWork3Chunk(req, res, parsedUrl);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/work4/job-upload") {
+    handleJobUpload(req, res);
     return;
   }
   if (req.method === "POST" && req.url === "/work4/work3-upload") {
