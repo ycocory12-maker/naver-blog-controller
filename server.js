@@ -1874,94 +1874,9 @@ async function handleTargetDiagnostic(req, res) {
     res.end(JSON.stringify({ error: error.message }));
   }
 }
-const ONCE_BATCH_TOKEN_HASH = "d2c34bd284095af36634b1a419c328d979017a6d8c8edfd94ed87bd32255d7bb";
-const ONCE_BATCH_ALLOWED_IDS = new Set(["020", "021", "022", "023", "024", "025", "026", "027", "028", "029", "030"]);
-
-function onceBatchAuthorized(req, url) {
-  const supplied = String(req.headers["x-once-token"] || url.searchParams.get("token") || "");
-  if (!supplied) return false;
-  const actual = crypto.createHash("sha256").update(supplied).digest();
-  const expected = Buffer.from(ONCE_BATCH_TOKEN_HASH, "hex");
-  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
-}
-
-async function handleOnceBatch(req, res, url) {
-  if (!onceBatchAuthorized(req, url)) {
-    res.statusCode = 403;
-    res.end(JSON.stringify({ error: "forbidden" }));
-    return;
-  }
-  const action = String(url.searchParams.get("action") || "status");
-  if (req.method === "GET" && action === "status") {
-    res.end(JSON.stringify({ ok: true, running: Boolean(work4RunPromise), lastResult }));
-    return;
-  }
-  if (req.method === "GET" && action === "draft-list") {
-    const original = req.headers["x-work4-token"];
-    req.headers["x-work4-token"] = process.env.WORK4_UPLOAD_TOKEN || "";
-    try {
-      await handleDraftListDiagnostic(req, res);
-    } finally {
-      if (original === undefined) delete req.headers["x-work4-token"];
-      else req.headers["x-work4-token"] = original;
-    }
-    return;
-  }
-  if (req.method !== "POST" || action !== "upload-run") {
-    res.statusCode = 405;
-    res.end(JSON.stringify({ error: "method_or_action_not_allowed" }));
-    return;
-  }
-  if (work4RunPromise) {
-    res.statusCode = 409;
-    res.end(JSON.stringify({ error: "work4_already_running" }));
-    return;
-  }
-  try {
-    const payload = await readJsonRequest(req, 8 * 1024 * 1024);
-    const job = validateRuntimeJobPayload(payload.job);
-    const contentId = String(job.content_id || "");
-    if (!ONCE_BATCH_ALLOWED_IDS.has(contentId)) throw new Error("once_batch_content_id_not_allowed");
-    const marker = `/tmp/work4-once-batch-${contentId}-consumed`;
-    const failedRetry = lastResult && String(lastResult.content_id) === contentId && lastResult.draft_saved !== true && lastResult.published === false;
-    if (fs.existsSync(marker) && !failedRetry) throw new Error("once_batch_content_already_consumed");
-    if (!Array.isArray(payload.images) || payload.images.length !== 6 || job.images.length !== 6) {
-      throw new Error("once_batch_requires_six_images");
-    }
-    const decoded = payload.images.map((encoded, index) => {
-      if (typeof encoded !== "string") throw new Error("invalid_work3_image_" + (index + 1));
-      const buffer = Buffer.from(encoded, "base64");
-      if (buffer.length < 10000 || buffer.length > 2 * 1024 * 1024) throw new Error("invalid_work3_image_size_" + (index + 1));
-      const isPng = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
-      if (!isPng) throw new Error("once_batch_image_must_be_png_" + (index + 1));
-      return buffer;
-    });
-    const tmpJob = RUNTIME_JOB_FILE + ".tmp";
-    fs.writeFileSync(tmpJob, JSON.stringify(job, null, 2), "utf8");
-    fs.renameSync(tmpJob, RUNTIME_JOB_FILE);
-    decoded.forEach((buffer, index) => {
-      const target = runtimeWork3ImagePath(contentId, index + 1, "png");
-      fs.writeFileSync(target, buffer);
-      out("work3_runtime_image_" + (index + 1) + "_received", { content_id: contentId, bytes: buffer.length, path: target });
-    });
-    fs.writeFileSync(marker, new Date().toISOString(), "utf8");
-    updatePipelineStage(contentId, "work3", { status: "DONE", source: "once_batch_image_upload", image_count: 6 });
-    res.statusCode = 202;
-    res.end(JSON.stringify({ ok: true, content_id: contentId, accepted: 6, action: "draft_run_started" }));
-    setImmediate(() => startWork4Run("once_batch_upload").catch((error) => out("controller_error", error.message)));
-  } catch (error) {
-    res.statusCode = 400;
-    res.end(JSON.stringify({ error: error.message }));
-  }
-}
-
 const server = http.createServer((req, res) => {
   res.setHeader("content-type", "application/json; charset=utf-8");
   const parsedUrl = new URL(req.url, "http://localhost");
-  if (parsedUrl.pathname === "/work4/once-batch") {
-    handleOnceBatch(req, res, parsedUrl);
-    return;
-  }
   if (req.method === "POST" && parsedUrl.pathname === "/pipeline/work1-complete") {
     handlePipelineStageComplete(req, res, "work1");
     return;
