@@ -1923,7 +1923,8 @@ async function handleOnceBatch(req, res, url) {
     const contentId = String(job.content_id || "");
     if (!ONCE_BATCH_ALLOWED_IDS.has(contentId)) throw new Error("once_batch_content_id_not_allowed");
     const marker = `/tmp/work4-once-batch-${contentId}-consumed`;
-    if (fs.existsSync(marker)) throw new Error("once_batch_content_already_consumed");
+    const failedRetry = lastResult && String(lastResult.content_id) === contentId && lastResult.draft_saved !== true && lastResult.published === false;
+    if (fs.existsSync(marker) && !failedRetry) throw new Error("once_batch_content_already_consumed");
     if (!Array.isArray(payload.images) || payload.images.length !== 6 || job.images.length !== 6) {
       throw new Error("once_batch_requires_six_images");
     }
