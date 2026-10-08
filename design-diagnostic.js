@@ -66,7 +66,7 @@ async function summarizePage(page, label) {
   try {
     const version = await getVersion();
     const wsUrl = "ws://naver-chromium.railway.internal:9222" + new URL(version.webSocketDebuggerUrl).pathname;
-    browser = await chromium.connectOverCDP(wsUrl);
+    browser = await chromium.connectOverCDP(wsUrl, { headers: { Host: "localhost:9222" }, timeout: 30000 });
     const context = browser.contexts()[0] || await browser.newContext();
     let pages = context.pages();
     let page = pages.find(p => /admin\.blog\.naver\.com/.test(p.url())) || pages.find(p => /blog\.naver\.com/.test(p.url())) || await context.newPage();
