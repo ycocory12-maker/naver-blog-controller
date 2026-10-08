@@ -531,9 +531,10 @@ async function activateDraftCandidate(candidate, frame, page, title) {
   await target.click({ force: true });
   await page.waitForTimeout(1200);
 
+  const activeFrame = await findEditorFrame(page, 10000).catch(() => null);
   let confirmed = false;
-  for (const context of [frame, page]) {
-    for (const label of ["확인", "불러오기"]) {
+  for (const context of [activeFrame, page].filter(Boolean)) {
+    for (const label of ["확인", "불러오기", "이어서 작성"]) {
       const button = context.getByRole("button", { name: label, exact: true });
       const count = await button.count().catch(() => 0);
       for (let i = 0; i < count; i += 1) {
