@@ -33,11 +33,11 @@ async function connect() {
 }
 async function makeBanner(context) {
   const p=await context.newPage();
-  await p.setViewportSize({width:966,height:328});
+  await p.setViewportSize({width:966,height:385});
   const html=`<!doctype html><html lang="ko"><head><meta charset="utf-8"><style>
-  *{box-sizing:border-box}html,body{margin:0;width:966px;height:328px;overflow:hidden}
+  *{box-sizing:border-box}html,body{margin:0;width:966px;height:385px;overflow:hidden}
   body{font-family:Arial,"Noto Sans KR","Malgun Gothic",sans-serif;background:#f7f7f4;color:#171717}
-  .hero{width:966px;height:328px;position:relative;overflow:hidden;background:
+  .hero{width:966px;height:385px;position:relative;overflow:hidden;background:
     radial-gradient(circle at 78% 12%,rgba(31,91,255,.10),transparent 28%),
     linear-gradient(112deg,#fbfaf7 0%,#f7f7f4 54%,#eef2f7 100%)}
   .copy{position:absolute;left:54px;top:48px;width:540px;z-index:3}
@@ -47,7 +47,7 @@ async function makeBanner(context) {
   .tag{margin-top:18px;font-size:23px;letter-spacing:-1.1px;font-weight:500}
   .meta{margin-top:14px;font-size:13px;color:#585858}
   .rule{margin-top:21px;width:42px;height:3px;background:#1f5bff}
-  .office{position:absolute;right:0;top:0;width:390px;height:328px}
+  .office{position:absolute;right:0;top:0;width:390px;height:385px}
   .window{position:absolute;right:0;top:0;width:320px;height:205px;background:
     linear-gradient(90deg,rgba(255,255,255,.2),rgba(255,255,255,.78)),
     linear-gradient(180deg,#dce9f6 0%,#edf3f8 55%,#d6e0e7 100%);border-left:1px solid #d3d8dc}
@@ -63,7 +63,7 @@ async function makeBanner(context) {
   .stem{position:absolute;left:42px;bottom:39px;width:3px;height:74px;background:#718c6a;transform:rotate(-7deg)}
   .leaf{position:absolute;width:27px;height:11px;background:#7c9a73;border-radius:100% 0 100% 0;transform:rotate(-25deg)}
   .l1{left:14px;top:23px}.l2{left:43px;top:38px;transform:rotate(28deg)}.l3{left:11px;top:54px}.l4{left:43px;top:69px;transform:rotate(35deg)}
-  .bluebar{position:absolute;right:0;bottom:0;width:9px;height:328px;background:#1f5bff;opacity:.9}
+  .bluebar{position:absolute;right:0;bottom:0;width:9px;height:385px;background:#1f5bff;opacity:.9}
   </style></head><body><div class="hero">
   <div class="copy"><div class="eyebrow">TAX · BUSINESS · PRACTICE</div>
   <div class="title">SHIN <span class="blue">TAX NOTE</span></div>
@@ -72,7 +72,7 @@ async function makeBanner(context) {
   <div class="office"><div class="window"><div class="city"></div></div><div class="plant"><div class="stem"></div><div class="leaf l1"></div><div class="leaf l2"></div><div class="leaf l3"></div><div class="leaf l4"></div><div class="pot"></div></div>
   <div class="desk"></div><div class="laptop"></div><div class="books"><div class="book">TAX LAW</div><div class="book">BUSINESS</div><div class="book">PRACTICE</div></div></div><div class="bluebar"></div></div></body></html>`;
   await p.setContent(html,{waitUntil:"load"});
-  const file="/tmp/shin-tax-note-banner.png";
+  const file="/tmp/shin-tax-note-banner-385.png";
   await p.screenshot({path:file,type:"png"});
   await p.close();
   return file;
@@ -140,19 +140,12 @@ async function save(page){
     await page.waitForTimeout(2500);
     out("before",await readState(page));
 
-    await setValue(page,"#background_inputbox_color","#F7F7F4");
-    await setValue(page,"#title_height","328");
-    await setValue(page,"#titleback_inputbox_color","#F7F7F4");
-    await setValue(page,"#titlefont_inputbox_color","#171717");
-    await setValue(page,"#gnbfont_inputbox_color","#171717");
-    await setValue(page,"#menuBasicFontColor_inputbox_color","#4A4A4A");
-    await setValue(page,"#menuBoldFontColor_inputbox_color","#1F5BFF");
-    await setValue(page,"#poststyleborder_inputbox_color","#E7E7E3");
-    await setValue(page,"#poststyle_fontcolor1_inputbox_color","#171717");
-    await setValue(page,"#poststyle_fontcolor2_inputbox_color","#444444");
-    await setValue(page,"#poststyle_fontcolor3_inputbox_color","#1F5BFF");
-    await setValue(page,"#profilecolor_inputbox_color","#555555");
-    await setChecked(page,"#chk_title_display",false);
+    // Keep the existing native skin settings. Replace only the title image and hide the old text overlay.
+    const titleDisplay=page.locator("#chk_title_display");
+    if(await titleDisplay.count() && await titleDisplay.isChecked().catch(()=>false)){
+      await titleDisplay.uncheck({force:true});
+      await page.waitForTimeout(500);
+    }
 
     await page.locator("#titleInputFile").setInputFiles(banner);
     await page.waitForTimeout(3500);
