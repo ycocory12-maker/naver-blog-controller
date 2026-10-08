@@ -549,8 +549,8 @@ async function openSavedDraftFromList(frame, page, titles) {
       for (let i = 0; i < exactCount; i += 1) {
         const candidate = exact.nth(i);
         if (!await candidate.isVisible().catch(() => false)) continue;
-        await candidate.evaluate((element) => element.click());
-        await page.waitForTimeout(3000);
+        await candidate.click({ force: true });
+        await page.waitForTimeout(5000);
         out("draft_title_clicked", title);
         return;
       }
@@ -562,8 +562,8 @@ async function openSavedDraftFromList(frame, page, titles) {
       for (let i = 0; i < partialCount; i += 1) {
         const candidate = partial.nth(i);
         if (!await candidate.isVisible().catch(() => false)) continue;
-        await candidate.evaluate((element) => element.click());
-        await page.waitForTimeout(3000);
+        await candidate.click({ force: true });
+        await page.waitForTimeout(5000);
         out("draft_title_clicked", title);
         return;
       }
