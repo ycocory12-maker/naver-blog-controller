@@ -1868,6 +1868,33 @@ async function handleDraftListDiagnostic(req, res) {
     const overlay = frame.locator('[aria-label="임시저장 글 보기"]').first();
     const overlayVisible = await overlay.isVisible().catch(() => false);
     const overlayText = overlayVisible ? (await overlay.innerText().catch(() => "")).trim() : "";
+    const requestedTitle = String(requestUrl.searchParams.get("title") || "").trim();
+    let targetDump = null;
+    if (overlayVisible && requestedTitle) {
+      const exact = frame.getByText(requestedTitle, { exact: true }).first();
+      if (await exact.count().catch(() => 0)) {
+        targetDump = await exact.evaluate((element) => {
+          const chain = [];
+          let current = element;
+          for (let depth = 0; current && depth < 6; depth += 1, current = current.parentElement) {
+            chain.push({
+              tag: current.tagName,
+              className: typeof current.className === "string" ? current.className : "",
+              role: current.getAttribute("role"),
+              href: current.getAttribute("href"),
+              type: current.getAttribute("type"),
+              data: Object.fromEntries(Array.from(current.attributes)
+                .filter((attribute) => attribute.name.startsWith("data-"))
+                .map((attribute) => [attribute.name, attribute.value])),
+            });
+          }
+          return {
+            chain,
+            html: element.parentElement?.parentElement?.outerHTML.slice(0, 6000) || element.outerHTML.slice(0, 6000),
+          };
+        }).catch(() => null);
+      }
+    }
     await page.keyboard.press("Escape").catch(() => {});
     res.end(JSON.stringify({
       ok: true,
@@ -1876,7 +1903,8 @@ async function handleDraftListDiagnostic(req, res) {
       conflictResolved: countTextAfterResolve !== countText || true,
       overlayVisible,
       overlayText,
-      targetFound: overlayText.includes("유튜버 사업자등록 시점과 업종 선택, 첫 애드센스 수익부터 확인할 것")
+      targetFound: requestedTitle ? overlayText.includes(requestedTitle) : false,
+      targetDump
     }));
   } catch (error) {
     res.statusCode = 500;
