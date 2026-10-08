@@ -5,7 +5,7 @@ const v=await new Promise((resolve,reject)=>{http.get({hostname:'naver-chromium.
 b=await chromium.connectOverCDP('ws://naver-chromium.railway.internal:9222'+new URL(v.webSocketDebuggerUrl).pathname,{headers:{Host:'localhost:9222'}});
 p=await b.contexts()[0].newPage();await p.setViewportSize({width:1440,height:1000});
 
-p.on('dialog',async d=>{out('dialog',d.message());await d.accept()});
+p.on('dialog',async d=>{out('dialog',d.message());await d.accept().catch(()=>{})});
 await p.goto('https://admin.blog.naver.com/AdminCategoryView.naver?blogId=tlsehdduq0152',{waitUntil:'domcontentloaded'});await p.waitForTimeout(1500);
 out('category_before',await p.locator('#tree').innerText());
 const cta=p.locator('#tree ._categoryName').filter({hasText:/^세무사 수험$/});
