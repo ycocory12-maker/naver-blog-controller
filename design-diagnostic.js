@@ -16,110 +16,71 @@ function getVersionOnce() {
     }, (res) => {
       let data = "";
       res.on("data", c => data += c);
-      res.on("end", () => {
-        try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
-      });
+      res.on("end", () => { try { resolve(JSON.parse(data)); } catch(e) { reject(e); } });
     });
     req.setTimeout(5000, () => req.destroy(new Error("version_timeout")));
     req.on("error", reject);
   });
 }
-
 async function getVersion() {
-  for (let i = 1; i <= 8; i++) {
+  for (let i=1;i<=8;i++) {
     try { return await getVersionOnce(); }
-    catch (e) { out("version_error_" + i, e.message); if (i < 8) await sleep(1500); }
+    catch(e) { if (i===8) throw e; await sleep(1200); }
   }
-  throw new Error("cdp_unavailable");
+}
+async function connect() {
+  const v = await getVersion();
+  const ws = "ws://naver-chromium.railway.internal:9222" + new URL(v.webSocketDebuggerUrl).pathname;
+  return chromium.connectOverCDP(ws, { headers:{ Host:"localhost:9222" }, timeout:30000 });
+}
+async function inspectPage(page, label, url) {
+  await page.goto(url, { waitUntil:"domcontentloaded", timeout:30000 });
+  await page.waitForTimeout(2200);
+  out(label+"_url", page.url());
+
+  const forms = await page.locator("form").evaluateAll(fs => fs.map(f => ({
+    id:f.id||"", name:f.getAttribute("name")||"", action:f.action||"", method:f.method||"", cls:f.className||""
+  })));
+  out(label+"_forms", forms);
+
+  const controls = await page.locator("input,select,textarea").evaluateAll(els => els.map(e => {
+    const label = e.id ? document.querySelector('label[for="'+CSS.escape(e.id)+'"]') : null;
+    const parentText = (e.closest("li, tr, dd, dt, div")?.innerText || "").trim().replace(/\s+/g," ").slice(0,240);
+    return {
+      tag:e.tagName.toLowerCase(), type:e.type||"", id:e.id||"", name:e.name||"",
+      value:(e.type==="password"?"[redacted]":(e.value||"")).slice(0,180),
+      checked:!!e.checked, selectedIndex:typeof e.selectedIndex==="number"?e.selectedIndex:null,
+      label:(label?.innerText||"").trim().replace(/\s+/g," ").slice(0,160),
+      parentText
+    };
+  }));
+  out(label+"_controls", controls);
+
+  const clickable = await page.locator("button, a, input[type=button], input[type=submit], input[type=image]").evaluateAll(els => els.map(e => ({
+    tag:e.tagName.toLowerCase(), id:e.id||"", name:e.getAttribute("name")||"",
+    text:(e.innerText||e.value||e.getAttribute("aria-label")||e.getAttribute("title")||"").trim().replace(/\s+/g," ").slice(0,160),
+    cls:e.className||"", href:e.href||""
+  })).filter(x => /적용|저장|완료|확인|선택|레이아웃|위젯|대표|프롤로그|메뉴|글|이미지|취소/i.test(x.text) || /save|submit|apply|layout|prologue|menu/i.test(x.id+" "+x.cls)));
+  out(label+"_clickable", clickable);
+
+  const body = await page.locator("body").innerText().catch(()=>"");
+  out(label+"_body_excerpt", body.replace(/\n{3,}/g,"\n\n").slice(0,9000));
 }
 
-async function summarizePage(page, label) {
-  await page.waitForTimeout(2500);
-  out(label + "_url", page.url());
-  out(label + "_title", await page.title().catch(() => ""));
-  const bodyText = await page.locator("body").innerText().catch(() => "");
-  out(label + "_body", bodyText.slice(0, 12000));
-  const links = await page.locator("a").evaluateAll(els => els.slice(0, 120).map(a => ({
-    text: (a.innerText || a.textContent || "").trim().replace(/\s+/g, " ").slice(0, 120),
-    href: a.href || ""
-  })).filter(x => x.text || x.href));
-  out(label + "_links", links);
-  const buttons = await page.locator("button").evaluateAll(els => els.slice(0, 120).map(b => ({
-    text: (b.innerText || b.textContent || "").trim().replace(/\s+/g, " ").slice(0, 120),
-    aria: b.getAttribute("aria-label") || "",
-    cls: b.className || ""
-  })));
-  out(label + "_buttons", buttons);
-  const inputs = await page.locator("input").evaluateAll(els => els.slice(0, 120).map(i => ({
-    type: i.type || "",
-    name: i.name || "",
-    id: i.id || "",
-    value: i.type === "password" ? "[redacted]" : (i.value || "").slice(0, 100),
-    accept: i.accept || "",
-    cls: i.className || ""
-  })));
-  out(label + "_inputs", inputs);
-}
-
-(async () => {
+(async()=>{
   let browser;
   try {
-    const version = await getVersion();
-    const wsUrl = "ws://naver-chromium.railway.internal:9222" + new URL(version.webSocketDebuggerUrl).pathname;
-    browser = await chromium.connectOverCDP(wsUrl, { headers: { Host: "localhost:9222" }, timeout: 30000 });
-    const context = browser.contexts()[0] || await browser.newContext();
-    let pages = context.pages();
-    let page = pages.find(p => /admin\.blog\.naver\.com/.test(p.url())) || pages.find(p => /blog\.naver\.com/.test(p.url())) || await context.newPage();
-    await page.goto("https://admin.blog.naver.com/tlsehdduq0152", { waitUntil: "domcontentloaded", timeout: 30000 });
-    await summarizePage(page, "admin_root");
-
-    const candidates = [
-      "꾸미기 설정",
-      "세부 디자인 설정",
-      "레이아웃·위젯 설정",
-      "타이틀 꾸미기",
-      "스킨 선택",
-      "내 스킨 관리"
-    ];
-    for (const text of candidates) {
-      const loc = page.getByText(text, { exact: true }).first();
-      const count = await loc.count().catch(() => 0);
-      const visible = count ? await loc.isVisible().catch(() => false) : false;
-      out("candidate_" + text.replace(/\s+/g, "_"), { count, visible });
-    }
-
-
-    const targets = [
-      ["layout", "https://admin.blog.naver.com/LayoutSelect.naver?blogId=tlsehdduq0152"],
-      ["title", "https://admin.blog.naver.com/Remocon.naver?blogId=tlsehdduq0152&loadType=admin&Redirect=Remocon&SelectedMenu=title"],
-      ["prologue", "https://admin.blog.naver.com/tlsehdduq0152/config/prologue"],
-      ["topmenu", "https://admin.blog.naver.com/tlsehdduq0152/config/topmenu"]
-    ];
-    for (const [label, url] of targets) {
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
-      await summarizePage(page, label);
-      const frames = page.frames().map((fr, idx) => ({ idx, name: fr.name(), url: fr.url() }));
-      out(label + "_frames", frames);
-      for (let fi = 0; fi < page.frames().length; fi++) {
-        const fr = page.frames()[fi];
-        if (fi === 0) continue;
-        const txt = await fr.locator("body").innerText().catch(() => "");
-        out(label + "_frame_" + fi + "_body", txt.slice(0, 9000));
-        const finputs = await fr.locator("input").evaluateAll(els => els.slice(0, 120).map(i => ({
-          type:i.type||"", name:i.name||"", id:i.id||"", value:i.type==="password"?"[redacted]":(i.value||"").slice(0,120), accept:i.accept||"", cls:i.className||""
-        }))).catch(() => []);
-        out(label + "_frame_" + fi + "_inputs", finputs);
-        const fbuttons = await fr.locator("button").evaluateAll(els => els.slice(0, 120).map(b => ({
-          text:(b.innerText||b.textContent||"").trim().replace(/\\s+/g," ").slice(0,120), aria:b.getAttribute("aria-label")||"", cls:b.className||""
-        }))).catch(() => []);
-        out(label + "_frame_" + fi + "_buttons", fbuttons);
-      }
-    }
-    out("diagnostic_done", true);
-  } catch (e) {
-    out("diagnostic_error", { message: e.message, stack: e.stack });
-    process.exitCode = 1;
+    browser = await connect();
+    const ctx = browser.contexts()[0];
+    const page = ctx.pages()[0] || await ctx.newPage();
+    await inspectPage(page, "layout", "https://admin.blog.naver.com/LayoutSelect.naver?blogId=tlsehdduq0152");
+    await inspectPage(page, "prologue", "https://admin.blog.naver.com/tlsehdduq0152/config/prologue");
+    await inspectPage(page, "topmenu", "https://admin.blog.naver.com/tlsehdduq0152/config/topmenu");
+    out("targeted_diagnostic_done", true);
+  } catch(e) {
+    out("targeted_diagnostic_error", {message:e.message, stack:e.stack});
+    process.exitCode=1;
   } finally {
-    try { if (browser) await browser.close(); } catch (_) {}
+    try { if(browser) await browser.close(); } catch(_){}
   }
 })();
