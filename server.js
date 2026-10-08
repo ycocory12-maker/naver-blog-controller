@@ -522,6 +522,38 @@ async function dismissHelpOverlay(frame, page) {
   return true;
 }
 
+async function activateDraftCandidate(candidate, frame, page, title) {
+  await candidate.scrollIntoViewIfNeeded().catch(() => {});
+  const clickable = candidate.locator("xpath=ancestor-or-self::*[self::button or self::a or @role='button'][1]");
+  const target = await clickable.count().catch(() => 0) ? clickable.first() : candidate;
+  const tag = await target.evaluate((element) => element.tagName).catch(() => "");
+  out("draft_candidate_click_target", tag || "text");
+  await target.click({ force: true });
+  await page.waitForTimeout(1200);
+
+  let confirmed = false;
+  for (const context of [frame, page]) {
+    for (const label of ["확인", "불러오기"]) {
+      const button = context.getByRole("button", { name: label, exact: true });
+      const count = await button.count().catch(() => 0);
+      for (let i = 0; i < count; i += 1) {
+        const candidateButton = button.nth(i);
+        if (!await candidateButton.isVisible().catch(() => false)) continue;
+        await candidateButton.click({ force: true }).catch(() => {});
+        confirmed = true;
+        out("draft_open_confirm_clicked", label);
+        await page.waitForTimeout(1800);
+        break;
+      }
+      if (confirmed) break;
+    }
+    if (confirmed) break;
+  }
+
+  await page.waitForTimeout(5000);
+  out("draft_title_clicked", title);
+}
+
 async function openSavedDraftFromList(frame, page, titles) {
   await dismissHelpOverlay(frame, page);
   const countButton = frame.locator("button.save_count_btn__xxzDt").first();
@@ -549,9 +581,7 @@ async function openSavedDraftFromList(frame, page, titles) {
       for (let i = 0; i < exactCount; i += 1) {
         const candidate = exact.nth(i);
         if (!await candidate.isVisible().catch(() => false)) continue;
-        await candidate.click({ force: true });
-        await page.waitForTimeout(5000);
-        out("draft_title_clicked", title);
+        await activateDraftCandidate(candidate, frame, page, title);
         return;
       }
 
@@ -562,9 +592,7 @@ async function openSavedDraftFromList(frame, page, titles) {
       for (let i = 0; i < partialCount; i += 1) {
         const candidate = partial.nth(i);
         if (!await candidate.isVisible().catch(() => false)) continue;
-        await candidate.click({ force: true });
-        await page.waitForTimeout(5000);
-        out("draft_title_clicked", title);
+        await activateDraftCandidate(candidate, frame, page, title);
         return;
       }
     }
