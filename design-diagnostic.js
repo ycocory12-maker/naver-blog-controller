@@ -88,6 +88,33 @@ async function summarizePage(page, label) {
       out("candidate_" + text.replace(/\s+/g, "_"), { count, visible });
     }
 
+
+    const targets = [
+      ["layout", "https://admin.blog.naver.com/LayoutSelect.naver?blogId=tlsehdduq0152"],
+      ["title", "https://admin.blog.naver.com/Remocon.naver?blogId=tlsehdduq0152&loadType=admin&Redirect=Remocon&SelectedMenu=title"],
+      ["prologue", "https://admin.blog.naver.com/tlsehdduq0152/config/prologue"],
+      ["topmenu", "https://admin.blog.naver.com/tlsehdduq0152/config/topmenu"]
+    ];
+    for (const [label, url] of targets) {
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+      await summarizePage(page, label);
+      const frames = page.frames().map((fr, idx) => ({ idx, name: fr.name(), url: fr.url() }));
+      out(label + "_frames", frames);
+      for (let fi = 0; fi < page.frames().length; fi++) {
+        const fr = page.frames()[fi];
+        if (fi === 0) continue;
+        const txt = await fr.locator("body").innerText().catch(() => "");
+        out(label + "_frame_" + fi + "_body", txt.slice(0, 9000));
+        const finputs = await fr.locator("input").evaluateAll(els => els.slice(0, 120).map(i => ({
+          type:i.type||"", name:i.name||"", id:i.id||"", value:i.type==="password"?"[redacted]":(i.value||"").slice(0,120), accept:i.accept||"", cls:i.className||""
+        }))).catch(() => []);
+        out(label + "_frame_" + fi + "_inputs", finputs);
+        const fbuttons = await fr.locator("button").evaluateAll(els => els.slice(0, 120).map(b => ({
+          text:(b.innerText||b.textContent||"").trim().replace(/\\s+/g," ").slice(0,120), aria:b.getAttribute("aria-label")||"", cls:b.className||""
+        }))).catch(() => []);
+        out(label + "_frame_" + fi + "_buttons", fbuttons);
+      }
+    }
     out("diagnostic_done", true);
   } catch (e) {
     out("diagnostic_error", { message: e.message, stack: e.stack });
