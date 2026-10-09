@@ -1978,10 +1978,10 @@ async function handleWork3Render002(req, res, url) {
        <div class="note">비용으로 인정돼도 부가세 공제는 제한될 수 있습니다</div>`,
       `<div class="title">월말 증빙 체크 4가지</div>
        <div class="checklist">
-        <div><b>✓</b><span>사용처·금액과 실제 결제내역이 맞는지</span></div>
-        <div><b>✓</b><span>사건명·의뢰인·출장·미팅 목적을 적었는지</span></div>
-        <div><b>✓</b><span>개인 사용분이 섞이지 않았는지</span></div>
-        <div><b>✓</b><span>세금계산서·계산서·카드전표·현금영수증을 챙겼는지</span></div>
+        <div><b>1</b><span>사용처·금액과 실제 결제내역이 맞는지</span></div>
+        <div><b>2</b><span>사건명·의뢰인·출장·미팅 목적을 적었는지</span></div>
+        <div><b>3</b><span>개인 사용분이 섞이지 않았는지</span></div>
+        <div><b>4</b><span>세금계산서·계산서·카드전표·현금영수증을 챙겼는지</span></div>
        </div>
        <div class="note">결제할 때 한 줄 메모를 남겨두세요</div>`
     ];
@@ -1991,7 +1991,7 @@ async function handleWork3Render002(req, res, url) {
       body{font-family:"Noto Sans CJK KR","Noto Sans KR","Arial",sans-serif;color:#102039;background:#fff}
       .canvas{position:relative;width:100%;height:100%;padding:72px;background:#fff}
       .canvas:before{content:"";position:absolute;left:72px;right:72px;top:54px;height:8px;background:#1239C2}
-      .brand{position:absolute;left:72px;bottom:42px;font:700 25px Georgia,serif;letter-spacing:3px;color:#102039}
+      .brand{position:absolute;left:72px;bottom:24px;font:700 25px Georgia,serif;letter-spacing:3px;color:#102039}
       .title{font-size:68px;line-height:1.18;font-weight:800;margin:30px 0 48px}
       .label,.pill,.eyebrow{display:inline-flex;padding:13px 22px;border-radius:999px;background:#F3F6FB;color:#1239C2;font-size:28px;font-weight:700}
       .cover{padding-top:70px}.cover h1{font-size:92px;line-height:1.18;margin:50px 0 34px;letter-spacing:-3px}.cover h1 em{font-style:normal;color:#1239C2}
@@ -2003,8 +2003,8 @@ async function handleWork3Render002(req, res, url) {
       .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.card{height:124px;background:#F3F6FB;border:2px solid #DCE2EB;border-radius:22px;display:flex;align-items:center;padding:0 30px}
       .card b{font-size:30px;color:#1239C2;margin-right:20px}.card span{font-size:35px;font-weight:700}.card.wide{grid-column:1/3}
       .flow{display:flex;align-items:stretch;gap:20px;margin-top:85px}.step{flex:1;background:#F3F6FB;border:2px solid #DCE2EB;border-radius:26px;padding:34px 26px;text-align:center}
-      .step>b{display:inline-grid;place-items:center;width:62px;height:62px;border-radius:50%;background:#1239C2;color:#fff;font-size:32px}.step h2{font-size:38px;margin:24px 0 18px}.step p{font-size:28px;line-height:1.5;color:#536175;margin:0}.arrow{align-self:center;font-size:55px;color:#1239C2}
-      .note{position:absolute;left:72px;right:72px;bottom:100px;padding:24px 30px;border-left:8px solid #1239C2;background:#F3F6FB;font-size:31px;font-weight:700}
+      .step>b{display:inline-grid;place-items:center;width:62px;height:62px;border-radius:50%;background:#1239C2;color:#fff;font-size:32px}.step h2{font-size:33px;margin:24px 0 18px}.step p{font-size:25px;line-height:1.5;color:#536175;margin:0}.arrow{align-self:center;font-size:55px;color:#1239C2}
+      .note{position:absolute;left:72px;right:72px;bottom:72px;padding:18px 30px;border-left:8px solid #1239C2;background:#F3F6FB;font-size:28px;font-weight:700}
       .compare{display:grid;grid-template-columns:1fr 1fr;gap:28px}.compare section,.split section{background:#F3F6FB;border:2px solid #DCE2EB;border-radius:26px;padding:30px 34px}
       .compare section.warn{background:#fff}.compare h2,.split h2{font-size:40px;margin:22px 0 25px}.compare p{font-size:29px;border-top:2px solid #DCE2EB;padding:17px 0;margin:0}
       .split{display:flex;align-items:stretch;gap:24px;margin-top:70px}.split section{flex:1;text-align:center}.split p{font-size:29px;line-height:1.55;color:#536175}.neq{align-self:center;font-size:74px;color:#1239C2;font-weight:800}
