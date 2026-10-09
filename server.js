@@ -1929,6 +1929,7 @@ async function handleDraftOpenDiagnostic(req, res) {
     const requestUrl = new URL(req.url, "http://localhost");
     const requestedTitle = String(requestUrl.searchParams.get("title") || "").trim();
     if (!requestedTitle) throw new Error("diagnostic_title_required");
+    const activationMode = String(requestUrl.searchParams.get("mode") || "pointer");
     const version = await getVersion();
     const wsUrl = "ws://naver-chromium.railway.internal:9222" + new URL(version.webSocketDebuggerUrl).pathname;
     const browser = await connectBrowserOverCdp(wsUrl);
@@ -1980,8 +1981,14 @@ async function handleDraftOpenDiagnostic(req, res) {
     page.on("request", requestListener);
     let clickError = "";
     try {
-      await target.click({ noWaitAfter: true, timeout: 5000 });
-      out("draft_open_diag_step", "target_clicked");
+      if (activationMode === "keyboard") {
+        await target.focus({ timeout: 3000 });
+        await page.keyboard.press("Enter");
+        out("draft_open_diag_step", "target_keyboard_enter");
+      } else {
+        await target.click({ noWaitAfter: true, timeout: 5000 });
+        out("draft_open_diag_step", "target_pointer_clicked");
+      }
     } catch (error) {
       clickError = error.message;
       out("draft_open_diag_click_error", clickError.slice(0, 300));
@@ -2009,6 +2016,7 @@ async function handleDraftOpenDiagnostic(req, res) {
     res.end(JSON.stringify({
       ok: true,
       requestedTitle,
+      activationMode,
       clickError,
       before,
       afterPages,
