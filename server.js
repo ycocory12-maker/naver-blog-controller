@@ -1934,11 +1934,27 @@ async function handleDraftOpenDiagnostic(req, res) {
     const wsUrl = "ws://naver-chromium.railway.internal:9222" + new URL(version.webSocketDebuggerUrl).pathname;
     const browser = await connectBrowserOverCdp(wsUrl);
     const contexts = browser.contexts();
+    const freshPage = requestUrl.searchParams.get("fresh") === "1";
     const pages = contexts.flatMap((context) => context.pages());
-    page = [...pages].reverse().find((candidate) => candidate.url().includes("Redirect=Write"));
+    if (freshPage) {
+      const context = contexts[0];
+      if (!context) throw new Error("browser_context_missing");
+      page = await context.newPage();
+      await page.goto("https://blog.naver.com/tlsehdduq0152?Redirect=Write&categoryNo=1", {
+        waitUntil: "domcontentloaded",
+        timeout: 30000,
+      });
+      await page.waitForTimeout(4000);
+    } else {
+      page = [...pages].reverse().find((candidate) => candidate.url().includes("Redirect=Write"));
+    }
     if (!page) throw new Error("write_page_missing");
-    let frame = await findEditorFrame(page, 10000);
-    out("draft_open_diag_step", "editor_ready");
+    let frame = await findEditorFrame(page, 12000);
+    if (freshPage) {
+      await handleRecoveryBeforeInput(frame, page);
+      frame = await findEditorFrame(page, 12000);
+    }
+    out("draft_open_diag_step", freshPage ? "fresh_editor_ready" : "editor_ready");
     await dismissHelpOverlay(frame, page);
     await closeDraftListOverlay(frame, page).catch(() => {});
     const countButton = frame.locator("button.save_count_btn__xxzDt").first();
@@ -2038,6 +2054,7 @@ async function handleDraftOpenDiagnostic(req, res) {
       ok: true,
       requestedTitle,
       activationMode,
+      freshPage,
       clickError,
       before,
       afterPages,
