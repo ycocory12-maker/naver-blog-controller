@@ -1935,7 +1935,9 @@ async function handleWork3Render002(req, res, url) {
     const width = 1200;
     const height = index === 0 ? 1200 : 900;
     await renderPage.setViewportSize({ width, height });
-    const brand = '<div class="brand">SHIN TAX NOTE</div>';
+    const brand = index === 5
+      ? '<div class="brand" style="left:auto;right:72px;bottom:12px">SHIN TAX NOTE</div>'
+      : '<div class="brand">SHIN TAX NOTE</div>';
     const templates = [
       `<div class="cover">
         <div class="label">전문직 세무</div>
@@ -1983,7 +1985,7 @@ async function handleWork3Render002(req, res, url) {
         <div><b>3</b><span>개인 사용분이 섞이지 않았는지</span></div>
         <div><b>4</b><span>세금계산서·계산서·카드전표·현금영수증을 챙겼는지</span></div>
        </div>
-       <div class="note">결제할 때 한 줄 메모를 남겨두세요</div>`
+       <div class="note" style="bottom:52px">결제할 때 한 줄 메모를 남겨두세요</div>`
     ];
     const content = templates[index];
     const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><style>
