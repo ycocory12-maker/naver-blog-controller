@@ -1915,6 +1915,117 @@ async function handleDraftListDiagnostic(req, res) {
 
 
 
+async function handleWork3Render002(req, res, url) {
+  const token = process.env.WORK4_UPLOAD_TOKEN || "";
+  if (!token || req.headers["x-work4-token"] !== token) {
+    res.statusCode = 403;
+    res.end(JSON.stringify({ error: "forbidden" }));
+    return;
+  }
+  let renderPage = null;
+  try {
+    const index = Number(url.searchParams.get("index"));
+    if (!Number.isInteger(index) || index < 0 || index > 5) throw new Error("render_index_invalid");
+    const version = await getVersion();
+    const wsUrl = "ws://naver-chromium.railway.internal:9222" + new URL(version.webSocketDebuggerUrl).pathname;
+    const browser = await connectBrowserOverCdp(wsUrl);
+    const context = browser.contexts()[0];
+    if (!context) throw new Error("browser_context_missing");
+    renderPage = await context.newPage();
+    const width = 1200;
+    const height = index === 0 ? 1200 : 900;
+    await renderPage.setViewportSize({ width, height });
+    const brand = '<div class="brand">SHIN TAX NOTE</div>';
+    const templates = [
+      `<div class="cover">
+        <div class="label">전문직 세무</div>
+        <h1>변호사 사무실<br><em>비용처리 7가지</em></h1>
+        <p class="sub">결제수단보다 업무 관련성과 증빙</p>
+        <div class="visual"><div class="folder"></div><div class="doc"><i></i><i></i><i></i></div></div>
+      </div>`,
+      `<div class="title">놓치기 쉬운 비용 7가지</div>
+       <div class="grid seven">
+        <div class="card"><b>01</b><span>변호사회비</span></div><div class="card"><b>02</b><span>판례검색 구독료</span></div>
+        <div class="card"><b>03</b><span>출장 교통·숙박비</span></div><div class="card"><b>04</b><span>사무실 임차·관리비</span></div>
+        <div class="card"><b>05</b><span>직원 교육·복리후생</span></div><div class="card"><b>06</b><span>컴퓨터·클라우드</span></div>
+        <div class="card wide"><b>07</b><span>의뢰인 미팅비·선물비</span></div>
+       </div>`,
+      `<div class="title">비용처리 판단 순서</div>
+       <div class="flow">
+        <div class="step"><b>1</b><h2>업무 관련성</h2><p>사건 수행·사무실 운영에<br>사용했는지 설명</p></div>
+        <div class="arrow">→</div>
+        <div class="step"><b>2</b><h2>적격증빙</h2><p>세금계산서·카드전표·<br>현금영수증 확인</p></div>
+        <div class="arrow">→</div>
+        <div class="step"><b>3</b><h2>비용처리 검토</h2><p>즉시 비용·자산·<br>한도 적용 구분</p></div>
+       </div>
+       <div class="note">영수증만으로 끝나지 않습니다</div>`,
+      `<div class="title">사업비용과 주의 항목</div>
+       <div class="compare">
+        <section><div class="pill">검토 가능</div><h2>업무 관련 지출</h2>
+          <p>변호사회비·법률정보 구독료</p><p>사건 출장비·사무실 임차료</p><p>업무용 IT·교육비</p>
+        </section>
+        <section class="warn"><div class="pill">주의</div><h2>개인비용·불산입</h2>
+          <p>일상 사용 가능한 정장</p><p>개인 취미·가족 관련 지출</p><p>벌금·과료·과태료</p>
+        </section>
+       </div>
+       <div class="note">개인카드는 사용 목적과 증빙을 함께 기록</div>`,
+      `<div class="title">비용 인정과 부가세 공제</div>
+       <div class="split">
+        <section><div class="eyebrow">소득세</div><h2>필요경비 인정</h2><p>업무 관련성과 통상성,<br>증빙을 기준으로 판단</p></section>
+        <div class="neq">≠</div>
+        <section><div class="eyebrow">부가가치세</div><h2>매입세액 공제</h2><p>공급자 업종·사용 목적·<br>증빙 요건을 별도 확인</p></section>
+       </div>
+       <div class="note">비용으로 인정돼도 부가세 공제는 제한될 수 있습니다</div>`,
+      `<div class="title">월말 증빙 체크 4가지</div>
+       <div class="checklist">
+        <div><b>✓</b><span>사용처·금액과 실제 결제내역이 맞는지</span></div>
+        <div><b>✓</b><span>사건명·의뢰인·출장·미팅 목적을 적었는지</span></div>
+        <div><b>✓</b><span>개인 사용분이 섞이지 않았는지</span></div>
+        <div><b>✓</b><span>세금계산서·계산서·카드전표·현금영수증을 챙겼는지</span></div>
+       </div>
+       <div class="note">결제할 때 한 줄 메모를 남겨두세요</div>`
+    ];
+    const content = templates[index];
+    const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><style>
+      *{box-sizing:border-box} html,body{margin:0;width:${width}px;height:${height}px;overflow:hidden}
+      body{font-family:"Noto Sans CJK KR","Noto Sans KR","Arial",sans-serif;color:#102039;background:#fff}
+      .canvas{position:relative;width:100%;height:100%;padding:72px;background:#fff}
+      .canvas:before{content:"";position:absolute;left:72px;right:72px;top:54px;height:8px;background:#1239C2}
+      .brand{position:absolute;left:72px;bottom:42px;font:700 25px Georgia,serif;letter-spacing:3px;color:#102039}
+      .title{font-size:68px;line-height:1.18;font-weight:800;margin:30px 0 48px}
+      .label,.pill,.eyebrow{display:inline-flex;padding:13px 22px;border-radius:999px;background:#F3F6FB;color:#1239C2;font-size:28px;font-weight:700}
+      .cover{padding-top:70px}.cover h1{font-size:92px;line-height:1.18;margin:50px 0 34px;letter-spacing:-3px}.cover h1 em{font-style:normal;color:#1239C2}
+      .sub{font-size:38px;color:#536175;margin:0}.visual{position:absolute;right:110px;bottom:150px;width:390px;height:300px;background:#F3F6FB;border-radius:34px}
+      .folder{position:absolute;left:45px;top:82px;width:225px;height:150px;border:7px solid #1239C2;border-radius:18px;background:#fff}
+      .folder:before{content:"";position:absolute;left:16px;top:-42px;width:95px;height:42px;border:7px solid #1239C2;border-bottom:0;border-radius:14px 14px 0 0}
+      .doc{position:absolute;right:34px;top:34px;width:150px;height:205px;background:#fff;border:6px solid #102039;border-radius:16px;transform:rotate(6deg);padding:46px 20px}
+      .doc i{display:block;height:8px;background:#DCE2EB;margin:16px 0;border-radius:4px}.doc i:first-child{background:#1239C2}
+      .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.card{height:124px;background:#F3F6FB;border:2px solid #DCE2EB;border-radius:22px;display:flex;align-items:center;padding:0 30px}
+      .card b{font-size:30px;color:#1239C2;margin-right:20px}.card span{font-size:35px;font-weight:700}.card.wide{grid-column:1/3}
+      .flow{display:flex;align-items:stretch;gap:20px;margin-top:85px}.step{flex:1;background:#F3F6FB;border:2px solid #DCE2EB;border-radius:26px;padding:34px 26px;text-align:center}
+      .step>b{display:inline-grid;place-items:center;width:62px;height:62px;border-radius:50%;background:#1239C2;color:#fff;font-size:32px}.step h2{font-size:38px;margin:24px 0 18px}.step p{font-size:28px;line-height:1.5;color:#536175;margin:0}.arrow{align-self:center;font-size:55px;color:#1239C2}
+      .note{position:absolute;left:72px;right:72px;bottom:100px;padding:24px 30px;border-left:8px solid #1239C2;background:#F3F6FB;font-size:31px;font-weight:700}
+      .compare{display:grid;grid-template-columns:1fr 1fr;gap:28px}.compare section,.split section{background:#F3F6FB;border:2px solid #DCE2EB;border-radius:26px;padding:30px 34px}
+      .compare section.warn{background:#fff}.compare h2,.split h2{font-size:40px;margin:22px 0 25px}.compare p{font-size:29px;border-top:2px solid #DCE2EB;padding:17px 0;margin:0}
+      .split{display:flex;align-items:stretch;gap:24px;margin-top:70px}.split section{flex:1;text-align:center}.split p{font-size:29px;line-height:1.55;color:#536175}.neq{align-self:center;font-size:74px;color:#1239C2;font-weight:800}
+      .checklist{display:grid;gap:18px}.checklist>div{min-height:102px;background:#F3F6FB;border:2px solid #DCE2EB;border-radius:22px;display:flex;align-items:center;padding:20px 30px}
+      .checklist b{display:grid;place-items:center;width:55px;height:55px;border-radius:50%;background:#1239C2;color:#fff;font-size:32px;margin-right:24px}.checklist span{font-size:31px;font-weight:650;line-height:1.35}
+    </style></head><body><div class="canvas">${content}${brand}</div></body></html>`;
+    await renderPage.setContent(html, { waitUntil: "load", timeout: 15000 });
+    await renderPage.waitForTimeout(600);
+    const buffer = await renderPage.screenshot({ type: "png" });
+    res.setHeader("content-type", "image/png");
+    res.setHeader("x-work3-width", String(width));
+    res.setHeader("x-work3-height", String(height));
+    res.end(buffer);
+  } catch (error) {
+    res.statusCode = 500;
+    res.end(JSON.stringify({ error: error.message }));
+  } finally {
+    if (renderPage) await renderPage.close().catch(() => {});
+  }
+}
+
 async function handleDraftOpenDiagnostic(req, res) {
   const token = process.env.WORK4_UPLOAD_TOKEN || "";
   if (!token || req.headers["x-work4-token"] !== token) {
@@ -2118,6 +2229,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "GET" && parsedUrl.pathname === "/debug/draft-list") {
     handleDraftListDiagnostic(req, res);
+    return;
+  }
+  if (req.method === "GET" && parsedUrl.pathname === "/work3/render-002") {
+    handleWork3Render002(req, res, parsedUrl);
     return;
   }
   if (req.method === "GET" && parsedUrl.pathname === "/debug/draft-open") {
