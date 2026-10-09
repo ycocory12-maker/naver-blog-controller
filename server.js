@@ -2012,6 +2012,27 @@ async function handleDraftOpenDiagnostic(req, res) {
     const overlayVisible = activeFrame
       ? await activeFrame.locator('[aria-label="임시저장 글 보기"]').first().isVisible().catch(() => false)
       : false;
+    const frameDetails = [];
+    for (const itemFrame of page.frames()) {
+      if (!itemFrame.url().includes("PostWriteForm.naver")) continue;
+      let iframeVisible = null;
+      let iframeBox = null;
+      try {
+        const frameElement = await itemFrame.frameElement();
+        iframeVisible = await frameElement.isVisible().catch(() => null);
+        iframeBox = await frameElement.boundingBox().catch(() => null);
+      } catch (_) {}
+      frameDetails.push({
+        name: itemFrame.name(),
+        url: itemFrame.url(),
+        parentUrl: itemFrame.parentFrame() ? itemFrame.parentFrame().url() : null,
+        titleCount: await itemFrame.locator(".se-documentTitle").count().catch(() => -1),
+        titleText: (await itemFrame.locator(".se-documentTitle").innerText({ timeout: 1200 }).catch(() => "")).trim(),
+        overlayVisible: await itemFrame.locator('[aria-label="임시저장 글 보기"]').first().isVisible().catch(() => false),
+        iframeVisible,
+        iframeBox,
+      });
+    }
     if (requestListener) page.off("request", requestListener);
     res.end(JSON.stringify({
       ok: true,
@@ -2023,6 +2044,7 @@ async function handleDraftOpenDiagnostic(req, res) {
       afterTitle,
       popupText,
       overlayVisible,
+      frameDetails,
       observedRequests,
     }));
   } catch (error) {
