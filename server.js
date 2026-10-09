@@ -1914,6 +1914,7 @@ async function handleDraftListDiagnostic(req, res) {
 }
 
 
+
 async function handleDraftOpenDiagnostic(req, res) {
   const token = process.env.WORK4_UPLOAD_TOKEN || "";
   if (!token || req.headers["x-work4-token"] !== token) {
@@ -1922,7 +1923,8 @@ async function handleDraftOpenDiagnostic(req, res) {
     return;
   }
   const observedRequests = [];
-  let requestListener;
+  let page = null;
+  let requestListener = null;
   try {
     const requestUrl = new URL(req.url, "http://localhost");
     const requestedTitle = String(requestUrl.searchParams.get("title") || "").trim();
@@ -1932,15 +1934,17 @@ async function handleDraftOpenDiagnostic(req, res) {
     const browser = await connectBrowserOverCdp(wsUrl);
     const contexts = browser.contexts();
     const pages = contexts.flatMap((context) => context.pages());
-    const page = [...pages].reverse().find((candidate) => candidate.url().includes("Redirect=Write"));
+    page = [...pages].reverse().find((candidate) => candidate.url().includes("Redirect=Write"));
     if (!page) throw new Error("write_page_missing");
     let frame = await findEditorFrame(page, 10000);
+    out("draft_open_diag_step", "editor_ready");
     await dismissHelpOverlay(frame, page);
     await closeDraftListOverlay(frame, page).catch(() => {});
     const countButton = frame.locator("button.save_count_btn__xxzDt").first();
     if (await countButton.count() !== 1) throw new Error("draft_list_button_missing");
-    await countButton.click({ force: true });
-    await page.waitForTimeout(1800);
+    await countButton.click({ force: true, noWaitAfter: true, timeout: 5000 });
+    await page.waitForTimeout(1500);
+    out("draft_open_diag_step", "list_opened");
     const exact = frame.getByText(requestedTitle, { exact: true });
     const count = await exact.count().catch(() => 0);
     let candidate = null;
@@ -1961,15 +1965,11 @@ async function handleDraftOpenDiagnostic(req, res) {
       data: Object.fromEntries(Array.from(element.attributes)
         .filter((attribute) => attribute.name.startsWith("data-"))
         .map((attribute) => [attribute.name, attribute.value])),
-      rect: (() => {
-        const rect = element.getBoundingClientRect();
-        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
-      })(),
     }));
     const before = {
       pageUrls: contexts.flatMap((context) => context.pages()).map((item) => item.url()),
       frameUrls: page.frames().map((item) => item.url()),
-      editorTitle: (await frame.locator(".se-documentTitle").innerText().catch(() => "")).trim(),
+      editorTitle: (await frame.locator(".se-documentTitle").innerText({ timeout: 1500 }).catch(() => "")).trim(),
       targetInfo,
     };
     requestListener = (request) => {
@@ -1980,26 +1980,31 @@ async function handleDraftOpenDiagnostic(req, res) {
     page.on("request", requestListener);
     let clickError = "";
     try {
-      await target.click({ timeout: 8000 });
+      await target.click({ noWaitAfter: true, timeout: 5000 });
+      out("draft_open_diag_step", "target_clicked");
     } catch (error) {
       clickError = error.message;
+      out("draft_open_diag_click_error", clickError.slice(0, 300));
     }
-    await page.waitForTimeout(9000);
-    const allPages = contexts.flatMap((context) => context.pages());
-    const afterPages = [];
-    for (const item of allPages) {
-      const details = { url: item.url(), title: await item.title().catch(() => ""), frames: [] };
-      for (const itemFrame of item.frames()) {
-        details.frames.push({
-          url: itemFrame.url(),
-          titleText: (await itemFrame.locator(".se-documentTitle").innerText().catch(() => "")).trim(),
-          visibleDialogs: (await itemFrame.getByRole("dialog").allInnerTexts().catch(() => [])).slice(0, 10),
-          bodyPreview: (await itemFrame.locator("body").innerText().catch(() => "")).slice(0, 1200),
-        });
-      }
-      afterPages.push(details);
+    await page.waitForTimeout(5000);
+    const afterPages = contexts.flatMap((context) => context.pages()).map((item) => ({
+      url: item.url(),
+      frameUrls: item.frames().map((itemFrame) => itemFrame.url()),
+    }));
+    let activeFrame = null;
+    for (const item of contexts.flatMap((context) => context.pages())) {
+      const found = item.frames().find((candidateFrame) => candidateFrame.url().includes("PostWriteForm.naver"));
+      if (found) activeFrame = found;
     }
-    const overlayVisible = await frame.locator('[aria-label="임시저장 글 보기"]').first().isVisible().catch(() => false);
+    const afterTitle = activeFrame
+      ? (await activeFrame.locator(".se-documentTitle").innerText({ timeout: 1500 }).catch(() => "")).trim()
+      : "";
+    const popupText = activeFrame
+      ? (await activeFrame.locator("body").innerText({ timeout: 1500 }).catch(() => "")).slice(0, 1600)
+      : "";
+    const overlayVisible = activeFrame
+      ? await activeFrame.locator('[aria-label="임시저장 글 보기"]').first().isVisible().catch(() => false)
+      : false;
     if (requestListener) page.off("request", requestListener);
     res.end(JSON.stringify({
       ok: true,
@@ -2007,10 +2012,13 @@ async function handleDraftOpenDiagnostic(req, res) {
       clickError,
       before,
       afterPages,
+      afterTitle,
+      popupText,
       overlayVisible,
       observedRequests,
     }));
   } catch (error) {
+    if (page && requestListener) page.off("request", requestListener);
     res.statusCode = 500;
     res.end(JSON.stringify({ error: error.message, observedRequests }));
   }
