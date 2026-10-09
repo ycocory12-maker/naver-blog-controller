@@ -1913,6 +1913,109 @@ async function handleDraftListDiagnostic(req, res) {
   }
 }
 
+
+async function handleDraftOpenDiagnostic(req, res) {
+  const token = process.env.WORK4_UPLOAD_TOKEN || "";
+  if (!token || req.headers["x-work4-token"] !== token) {
+    res.statusCode = 403;
+    res.end(JSON.stringify({ error: "forbidden" }));
+    return;
+  }
+  const observedRequests = [];
+  let requestListener;
+  try {
+    const requestUrl = new URL(req.url, "http://localhost");
+    const requestedTitle = String(requestUrl.searchParams.get("title") || "").trim();
+    if (!requestedTitle) throw new Error("diagnostic_title_required");
+    const version = await getVersion();
+    const wsUrl = "ws://naver-chromium.railway.internal:9222" + new URL(version.webSocketDebuggerUrl).pathname;
+    const browser = await connectBrowserOverCdp(wsUrl);
+    const contexts = browser.contexts();
+    const pages = contexts.flatMap((context) => context.pages());
+    const page = [...pages].reverse().find((candidate) => candidate.url().includes("Redirect=Write"));
+    if (!page) throw new Error("write_page_missing");
+    let frame = await findEditorFrame(page, 10000);
+    await dismissHelpOverlay(frame, page);
+    await closeDraftListOverlay(frame, page).catch(() => {});
+    const countButton = frame.locator("button.save_count_btn__xxzDt").first();
+    if (await countButton.count() !== 1) throw new Error("draft_list_button_missing");
+    await countButton.click({ force: true });
+    await page.waitForTimeout(1800);
+    const exact = frame.getByText(requestedTitle, { exact: true });
+    const count = await exact.count().catch(() => 0);
+    let candidate = null;
+    for (let i = 0; i < count; i += 1) {
+      if (await exact.nth(i).isVisible().catch(() => false)) {
+        candidate = exact.nth(i);
+        break;
+      }
+    }
+    if (!candidate) throw new Error("diagnostic_draft_title_not_found");
+    const clickable = candidate.locator("xpath=ancestor-or-self::*[self::button or self::a or @role='button'][1]");
+    const target = await clickable.count().catch(() => 0) ? clickable.first() : candidate;
+    const targetInfo = await target.evaluate((element) => ({
+      tag: element.tagName,
+      className: typeof element.className === "string" ? element.className : "",
+      href: element.getAttribute("href"),
+      role: element.getAttribute("role"),
+      data: Object.fromEntries(Array.from(element.attributes)
+        .filter((attribute) => attribute.name.startsWith("data-"))
+        .map((attribute) => [attribute.name, attribute.value])),
+      rect: (() => {
+        const rect = element.getBoundingClientRect();
+        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+      })(),
+    }));
+    const before = {
+      pageUrls: contexts.flatMap((context) => context.pages()).map((item) => item.url()),
+      frameUrls: page.frames().map((item) => item.url()),
+      editorTitle: (await frame.locator(".se-documentTitle").innerText().catch(() => "")).trim(),
+      targetInfo,
+    };
+    requestListener = (request) => {
+      const url = request.url();
+      if (!/naver\\.(?:com|net)/i.test(url) || observedRequests.length >= 120) return;
+      observedRequests.push({ method: request.method(), resourceType: request.resourceType(), url: url.slice(0, 800) });
+    };
+    page.on("request", requestListener);
+    let clickError = "";
+    try {
+      await target.click({ timeout: 8000 });
+    } catch (error) {
+      clickError = error.message;
+    }
+    await page.waitForTimeout(9000);
+    const allPages = contexts.flatMap((context) => context.pages());
+    const afterPages = [];
+    for (const item of allPages) {
+      const details = { url: item.url(), title: await item.title().catch(() => ""), frames: [] };
+      for (const itemFrame of item.frames()) {
+        details.frames.push({
+          url: itemFrame.url(),
+          titleText: (await itemFrame.locator(".se-documentTitle").innerText().catch(() => "")).trim(),
+          visibleDialogs: (await itemFrame.getByRole("dialog").allInnerTexts().catch(() => [])).slice(0, 10),
+          bodyPreview: (await itemFrame.locator("body").innerText().catch(() => "")).slice(0, 1200),
+        });
+      }
+      afterPages.push(details);
+    }
+    const overlayVisible = await frame.locator('[aria-label="임시저장 글 보기"]').first().isVisible().catch(() => false);
+    if (requestListener) page.off("request", requestListener);
+    res.end(JSON.stringify({
+      ok: true,
+      requestedTitle,
+      clickError,
+      before,
+      afterPages,
+      overlayVisible,
+      observedRequests,
+    }));
+  } catch (error) {
+    res.statusCode = 500;
+    res.end(JSON.stringify({ error: error.message, observedRequests }));
+  }
+}
+
 async function handleTargetDiagnostic(req, res) {
   const token = process.env.WORK4_UPLOAD_TOKEN || "";
   if (!token || req.headers["x-work4-token"] !== token) {
@@ -1960,6 +2063,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "GET" && parsedUrl.pathname === "/debug/draft-list") {
     handleDraftListDiagnostic(req, res);
+    return;
+  }
+  if (req.method === "GET" && parsedUrl.pathname === "/debug/draft-open") {
+    handleDraftOpenDiagnostic(req, res);
     return;
   }
   if (req.method === "GET" && parsedUrl.pathname === "/debug/targets") {
