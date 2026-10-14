@@ -1841,26 +1841,36 @@ async function handleDraftListDiagnostic(req, res) {
     if (await dim.isVisible().catch(() => false)) {
       const popup = dim.locator("..");
       const popupText = (await popup.innerText().catch(() => "")).trim();
-      const resolveConflict = requestUrl.searchParams.get("resolve") === "1";
-      if (resolveConflict && /임시저장글이 다른 기기에서[\s\S]*덮어 쓰시겠습니까/.test(popupText)) {
+      const dismissStaleTransfer = requestUrl.searchParams.get("dismiss_transfer") === "1";
+      if (dismissStaleTransfer && /^파일 전송 오류:/.test(popupText) && /work4-runtime-007-4\.png/.test(popupText)) {
+        const confirm = popup.getByRole("button", { name: "확인", exact: true });
+        if (await confirm.count() !== 1) throw new Error("stale_transfer_popup_confirm_not_unique");
+        await confirm.click({ force: true });
+        await page.waitForTimeout(800);
+        if (await dim.isVisible().catch(() => false)) throw new Error("stale_transfer_popup_still_visible");
+        out("stale_transfer_error_popup_dismissed", true);
+      } else {
+        const resolveConflict = requestUrl.searchParams.get("resolve") === "1";
+        if (resolveConflict && /임시저장글이 다른 기기에서[\s\S]*덮어 쓰시겠습니까/.test(popupText)) {
         const confirm = popup.getByRole("button", { name: "확인", exact: true });
         if (await confirm.count() !== 1) throw new Error("draft_conflict_confirm_not_unique");
         await confirm.click({ force: true });
         await page.waitForTimeout(3000);
         if (await dim.isVisible().catch(() => false)) throw new Error("draft_conflict_popup_still_visible");
         out("draft_conflict_overwrite_confirmed", true);
-      } else {
-        res.end(JSON.stringify({
-          ok: true,
-          pageUrls,
-          writePageFound: true,
-          editorFrameFound: true,
-          currentTitle,
-          countText,
-          popupBlocked: true,
-          popupText
-        }));
-        return;
+        } else {
+          res.end(JSON.stringify({
+            ok: true,
+            pageUrls,
+            writePageFound: true,
+            editorFrameFound: true,
+            currentTitle,
+            countText,
+            popupBlocked: true,
+            popupText
+          }));
+          return;
+        }
       }
     }
     const countTextAfterResolve = (await countButton.innerText().catch(() => "")).trim();
