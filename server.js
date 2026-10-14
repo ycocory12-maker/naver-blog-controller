@@ -1842,7 +1842,7 @@ async function handleDraftListDiagnostic(req, res) {
       const popup = dim.locator("..");
       const popupText = (await popup.innerText().catch(() => "")).trim();
       const dismissStaleTransfer = requestUrl.searchParams.get("dismiss_transfer") === "1";
-      if (dismissStaleTransfer && /^파일 전송 오류:/.test(popupText) && /work4-runtime-007-4\.png/.test(popupText)) {
+      if (dismissStaleTransfer && /^파일 전송 오류(?::|\s)/.test(popupText) && /work4-runtime-007-4\.png/.test(popupText)) {
         const confirm = popup.getByRole("button", { name: "확인", exact: true });
         if (await confirm.count() !== 1) throw new Error("stale_transfer_popup_confirm_not_unique");
         await confirm.click({ force: true });
