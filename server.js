@@ -24,8 +24,12 @@ let work4RunPromise = null;
 function loadPipelineState() {
   try {
     return JSON.parse(fs.readFileSync(PIPELINE_STATE_FILE, "utf8"));
-  } catch (_) {
-    return { version: 1, contents: {} };
+  } catch (error) {
+    if (error.code === "ENOENT") return { version: 1, contents: {} };
+    // A corrupt or unreadable existing file is NOT an empty history.
+    // Fail loudly instead of silently losing the pipeline's known progress.
+    out("pipeline_state_read_failed", { path: PIPELINE_STATE_FILE, error: error.message });
+    throw error;
   }
 }
 
@@ -107,6 +111,20 @@ async function handlePipelineStageComplete(req, res, stage) {
       return;
     }
 
+    // Missing wiring is a BLOCKER, not a successful 200 response.
+    // Never claim an automatic handoff happened when no URL is configured.
+    if (!PIPELINE_STAGE_URLS[stage]) {
+      updatePipelineStage(contentId, nextStage, {
+        status: "WAITING_TRIGGER_URL",
+        error: "next_stage_trigger_url_missing",
+      });
+      res.statusCode = 424;
+      res.end(JSON.stringify({
+        ok: false, error: "next_stage_trigger_url_missing",
+        content_id: contentId, completed_stage: stage, next_stage: nextStage,
+      }));
+      return;
+    }
     updatePipelineStage(contentId, nextStage, { status: "TRIGGERING" });
     try {
       const triggered = await triggerPipelineUrl(PIPELINE_STAGE_URLS[stage], {
@@ -136,6 +154,29 @@ async function handlePipelineStageComplete(req, res, stage) {
     res.statusCode = 400;
     res.end(JSON.stringify({ error: error.message }));
   }
+}
+
+function handlePipelineHealth(req, res, url) {
+  if (!pipelineAuthorized(req, url)) {
+    res.statusCode = 403;
+    res.end(JSON.stringify({ error: "forbidden" }));
+    return;
+  }
+  const statePath = path.resolve(PIPELINE_STATE_FILE);
+  const storageIsTmp = statePath === "/tmp" || statePath.startsWith("/tmp/");
+  const readiness = {
+    work1_to_work2_url_configured: Boolean(PIPELINE_STAGE_URLS.work1),
+    work2_to_work3_url_configured: Boolean(PIPELINE_STAGE_URLS.work2),
+    state_file_path: statePath,
+    state_file_in_ephemeral_tmp: storageIsTmp,
+    persistence_verified: false, // Requires confirming a Railway mounted volume externally.
+    automatic_daily_schedule_verified: false, // Requires an observed scheduler run.
+  };
+  const ready = readiness.work1_to_work2_url_configured &&
+    readiness.work2_to_work3_url_configured && !storageIsTmp;
+  res.statusCode = ready ? 200 : 503;
+  res.end(JSON.stringify({ ok: ready, readiness, publish_mode: "draft_only",
+    note: "URL readiness is not end-to-end verification; persistence and daily scheduler must be checked separately." }));
 }
 
 function handlePipelineStatus(req, res, url) {
@@ -175,6 +216,10 @@ async function startWork4Run(trigger = "manual") {
 
   work4RunPromise = runJob()
     .then((result) => {
+      // DONE means Naver draft was saved AND reopened/verified, never only that runJob returned.
+      if (!result || result.status !== "DRAFT_SAVED" || result.draft_saved !== true || result.published !== false) {
+        throw new Error("work4_draft_not_verified");
+      }
       if (contentId) updatePipelineStage(contentId, "work4", { status: "DONE", result });
       return result;
     })
@@ -2221,6 +2266,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "POST" && parsedUrl.pathname === "/pipeline/work2-complete") {
     handlePipelineStageComplete(req, res, "work2");
+    return;
+  }
+  if (req.method === "GET" && parsedUrl.pathname === "/pipeline/health") {
+    handlePipelineHealth(req, res, parsedUrl);
     return;
   }
   if (req.method === "GET" && parsedUrl.pathname === "/pipeline/status") {
