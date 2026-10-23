@@ -1,0 +1,38 @@
+name: Work1-4 reliability checks
+on:
+  pull_request:
+    paths:
+      - "server.js"
+      - "scripts/check_pipeline_config.js"
+      - ".github/workflows/work1-work4-checks.yml"
+  push:
+    branches:
+      - "main"
+    paths:
+      - "server.js"
+      - "scripts/check_pipeline_config.js"
+      - ".github/workflows/work1-work4-checks.yml"
+jobs:
+  static-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Syntax checks
+        run: |
+          node --check server.js
+          node --check scripts/check_pipeline_config.js
+      - name: Missing configuration is a blocker
+        run: |
+          if env -u WORK2_TRIGGER_URL -u WORK3_TRIGGER_URL -u PIPELINE_STATE_FILE node scripts/check_pipeline_config.js; then
+            echo "ERROR: missing triggers unexpectedly passed"
+            exit 1
+          fi
+      - name: Correctly configured format passes
+        env:
+          WORK2_TRIGGER_URL: https://example.invalid/work2
+          WORK3_TRIGGER_URL: https://example.invalid/work3
+          PIPELINE_STATE_FILE: /data/naver-work-pipeline-state.json
+        run: node scripts/check_pipeline_config.js
