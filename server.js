@@ -138,6 +138,85 @@ async function handlePipelineStageComplete(req, res, stage) {
   }
 }
 
+function handleWork4RuntimeStatus(req, res) {
+  const token = process.env.WORK4_UPLOAD_TOKEN || "";
+  if (!token || req.headers["x-work4-token"] !== token) {
+    res.statusCode = 403;
+    res.end(JSON.stringify({ error: "forbidden" }));
+    return;
+  }
+
+  const runtimeJobPresent = fs.existsSync(RUNTIME_JOB_FILE);
+  const jobSource = runtimeJobPresent ? "runtime" : "configured";
+  const jobPath = runtimeJobPresent ? RUNTIME_JOB_FILE : path.join(ROOT, JOB_FILE);
+  let job = null;
+  let readError = "";
+  try {
+    job = readJobPayload();
+  } catch (error) {
+    readError = String(error && error.message || "runtime_job_unreadable").slice(0, 120);
+  }
+
+  const state = loadPipelineState();
+  const contents = state && state.contents && typeof state.contents === "object" ? state.contents : {};
+  const activeContentIds = Object.keys(contents).filter((contentId) => {
+    return contents[contentId] && contents[contentId].stages &&
+      contents[contentId].stages.work4 &&
+      contents[contentId].stages.work4.status === "RUNNING";
+  });
+  const activeExecution = !!work4RunPromise || activeContentIds.length > 0;
+
+  let runtimeJob = null;
+  if (job && typeof job === "object") {
+    const contentId = String(job.content_id || "");
+    const expectedImageCount = Array.isArray(job.images) ? job.images.length : 0;
+    const safeAssetsRoot = path.resolve(ROOT, "assets") + path.sep;
+    const imageFiles = (Array.isArray(job.images) ? job.images : []).map((image, index) => {
+      const value = String(image || "");
+      let candidate = "";
+      if (/^\.\.\/tmp\/work4-runtime-[a-zA-Z0-9._-]+-\d+\.(?:jpg|png)$/i.test(value)) {
+        candidate = path.resolve(ROOT, value);
+      } else {
+        const assetPath = path.resolve(ROOT, value);
+        if (assetPath.startsWith(safeAssetsRoot)) candidate = assetPath;
+      }
+      const present = !!candidate && fs.existsSync(candidate) && fs.statSync(candidate).isFile();
+      return {
+        index: index + 1,
+        present,
+        bytes: present ? fs.statSync(candidate).size : 0,
+      };
+    });
+    const pipelineItem = contents[contentId] || null;
+    const stageStatus = pipelineItem && pipelineItem.stages && pipelineItem.stages.work4
+      ? String(pipelineItem.stages.work4.status || "")
+      : "";
+    const pendingImageCount = imageFiles.filter((item) => !item.present).length;
+    runtimeJob = {
+      content_id: contentId,
+      publish_mode: String(job.publish_mode || ""),
+      expected_image_count: expectedImageCount,
+      image_files_present_count: expectedImageCount - pendingImageCount,
+      pending_image_count: pendingImageCount,
+      image_files: imageFiles,
+      work4_stage_status: stageStatus || null,
+      awaiting_images: runtimeJobPresent && !activeExecution && stageStatus !== "DONE" && pendingImageCount > 0,
+    };
+  }
+
+  res.end(JSON.stringify({
+    ok: true,
+    active_execution: activeExecution,
+    active_content_ids: activeContentIds,
+    work4_promise_active: !!work4RunPromise,
+    runtime_job_file_present: runtimeJobPresent,
+    runtime_job_source: jobSource,
+    runtime_job_readable: !!job,
+    runtime_job_read_error: readError || null,
+    runtime_job: runtimeJob,
+  }));
+}
+
 function handlePipelineStatus(req, res, url) {
   if (!pipelineAuthorized(req, url)) {
     res.statusCode = 403;
@@ -2221,6 +2300,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "POST" && parsedUrl.pathname === "/pipeline/work2-complete") {
     handlePipelineStageComplete(req, res, "work2");
+    return;
+  }
+  if (req.method === "GET" && parsedUrl.pathname === "/work4/runtime-status") {
+    handleWork4RuntimeStatus(req, res);
     return;
   }
   if (req.method === "GET" && parsedUrl.pathname === "/pipeline/status") {
