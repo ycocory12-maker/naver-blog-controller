@@ -179,6 +179,63 @@ function handlePipelineHealth(req, res, url) {
     note: "URL readiness is not end-to-end verification; persistence and daily scheduler must be checked separately." }));
 }
 
+// Read-only runtime diagnostics. This is an observation, NOT an atomic reservation
+// and must never be used as the sole permission to overwrite an existing job.
+function handleRuntimeStatus(req, res, url) {
+  if (!pipelineAuthorized(req, url)) {
+    res.statusCode = 403;
+    res.end(JSON.stringify({ error: "forbidden" }));
+    return;
+  }
+  res.setHeader("cache-control", "no-store");
+  let runtimeJobPresent = false;
+  let runtimeContentId = null;
+  let expectedImages = null;
+  let presentImages = null;
+  let readError = null;
+  try {
+    runtimeJobPresent = fs.existsSync(RUNTIME_JOB_FILE);
+    if (runtimeJobPresent) {
+      const job = JSON.parse(fs.readFileSync(RUNTIME_JOB_FILE, "utf8"));
+      if (!job || typeof job !== "object" || Array.isArray(job) || !job.content_id || !Array.isArray(job.images)) {
+        throw new Error("invalid_runtime_job");
+      }
+      runtimeContentId = String(job.content_id).slice(0, 80);
+      expectedImages = job.images.length;
+      presentImages = job.images.filter((image) => {
+        const relative = String(image || "");
+        if (!/^(?:\.\.\/)?tmp\/work4-runtime-[a-zA-Z0-9._-]+-\d+\.(?:png|jpg)$/i.test(relative)) return false;
+        return fs.existsSync(path.join(ROOT, relative));
+      }).length;
+    }
+  } catch (error) {
+    readError = "runtime_job_unreadable";
+    out("runtime_status_read_error", error.message);
+  }
+  const result = {
+    ok: readError === null,
+    read_only: true,
+    work4_running: Boolean(work4RunPromise),
+    lock_scope: "single_controller_process_only",
+    runtime_job_present: runtimeJobPresent,
+    runtime_content_id: runtimeContentId,
+    expected_images: expectedImages,
+    present_images: presentImages,
+    last_result: {
+      content_id: lastResult.content_id || null,
+      status: lastResult.status || "UNKNOWN",
+      draft_saved: lastResult.draft_saved === true,
+      published: lastResult.published === true,
+      draft_reopen_verified: lastResult.draft_reopen_verified === true,
+    },
+    upload_permission_granted: false,
+    warning: "Read-only snapshot; does not guarantee an atomic upload lock or absence of another worker.",
+    ...(readError ? { error: readError } : {}),
+  };
+  res.statusCode = readError ? 503 : 200;
+  res.end(JSON.stringify(result));
+}
+
 function handlePipelineStatus(req, res, url) {
   if (!pipelineAuthorized(req, url)) {
     res.statusCode = 403;
@@ -217,7 +274,7 @@ async function startWork4Run(trigger = "manual") {
   work4RunPromise = runJob()
     .then((result) => {
       // DONE means Naver draft was saved AND reopened/verified, never only that runJob returned.
-      if (!result || result.status !== "DRAFT_SAVED" || result.draft_saved !== true || result.published !== false) {
+      if (!result || result.status !== "DRAFT_SAVED" || result.draft_saved !== true || result.published !== false || result.draft_reopen_verified !== true) {
         throw new Error("work4_draft_not_verified");
       }
       if (contentId) updatePipelineStage(contentId, "work4", { status: "DONE", result });
@@ -1277,6 +1334,34 @@ async function uploadImage(frame, page, absolutePath, index, contentId) {
   throw new Error(`image_${index}_verification_failed`);
 }
 
+// Reopen from Naver's saved-draft list and verify persisted content, not just
+// the currently open editor. Never count an unsaved editor as a saved draft.
+async function verifyPersistedDraft(frame, page, job) {
+  await openSavedDraftFromList(frame, page, job.draft_lookup_titles || [job.title]);
+  await page.waitForTimeout(2500);
+  frame = await findEditorFrame(page);
+  const reopenedTitle = await frame.locator(".se-documentTitle").innerText().catch(() => "");
+  const reopenedBody = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("\n");
+  const reopenedImages = await frame.locator(".se-component.se-image").count();
+  const reopenTitleOk = reopenedTitle.includes(job.title);
+  const reopenBodyOk = bodyMatchesJob(reopenedBody, job);
+  const reopenImagesOk = reopenedImages >= job.images.length + 1;
+  const reopenFooterOk = await footerImageIsLast(frame);
+  const reopenLayoutOk = await layoutMatchesJob(frame, job);
+  const reopenFormattingOk = await verifyBoldBlocks(frame, job.bold_blocks || []);
+  out("reopen_title_present", reopenTitleOk);
+  out("reopen_body_present", reopenBodyOk);
+  out("reopen_image_count", reopenedImages);
+  out("reopen_images_present", reopenImagesOk);
+  out("reopen_footer_last", reopenFooterOk);
+  out("reopen_layout_match", reopenLayoutOk);
+  out("reopen_bold_formatting_match", reopenFormattingOk);
+  if (!reopenTitleOk || !reopenBodyOk || !reopenImagesOk || !reopenFooterOk || !reopenLayoutOk || !reopenFormattingOk) {
+    throw new Error("reopen_verification_failed");
+  }
+  return true;
+}
+
 async function runJob() {
   const job = loadJob();
   const result = {
@@ -1289,6 +1374,7 @@ async function runJob() {
     body_entered: false,
     images_uploaded: false,
     draft_saved: false,
+    draft_reopen_verified: false,
     published: false,
     current_url: "",
     error: "",
@@ -1391,6 +1477,7 @@ async function runJob() {
         if (markerCount || !bodyOk || !imagesOk || !footerOk || !layoutOk || !formattingOk) {
           throw new Error("verify_only_failed");
         }
+        result.draft_reopen_verified = await verifyPersistedDraft(frame, page, job);
         result.title_entered = true;
         result.body_entered = true;
         result.images_uploaded = true;
@@ -1422,6 +1509,7 @@ async function runJob() {
           out("existing_target_formatting", existingFormattingOk);
 
           if (existingFooterOk && existingLayoutOk && existingFormattingOk) {
+            result.draft_reopen_verified = await verifyPersistedDraft(frame, page, job);
             result.title_entered = true;
             result.body_entered = true;
             result.images_uploaded = true;
@@ -1507,27 +1595,8 @@ async function runJob() {
     out("draft_count_after_save", saveCountText);
     out("publish_clicked", false);
 
-    // Reopen the saved item from Naver's draft list and verify persisted content.
-    await openSavedDraftFromList(frame, page, job.draft_lookup_titles || [job.title]);
-    await page.waitForTimeout(2500);
-    frame = await findEditorFrame(page);
-    const reopenedTitle = await frame.locator(".se-documentTitle").innerText().catch(() => "");
-    const reopenedBody = (await frame.locator(".se-component.se-text").allInnerTexts().catch(() => [])).join("\n");
-    const reopenedImages = await frame.locator(".se-component.se-image").count();
-    const reopenTitleOk = reopenedTitle.includes(job.title);
-    const reopenBodyOk = bodyMatchesJob(reopenedBody, job);
-    const reopenImagesOk = reopenedImages >= job.images.length + 1;
-    const reopenFooterOk = await footerImageIsLast(frame);
-    const reopenLayoutOk = await layoutMatchesJob(frame, job);
-    out("reopen_title_present", reopenTitleOk);
-    out("reopen_body_present", reopenBodyOk);
-    out("reopen_image_count", reopenedImages);
-    out("reopen_images_present", reopenImagesOk);
-    out("reopen_footer_last", reopenFooterOk);
-    out("reopen_layout_match", reopenLayoutOk);
-    if (!reopenTitleOk || !reopenBodyOk || !reopenImagesOk || !reopenFooterOk || !reopenLayoutOk) {
-      throw new Error("reopen_verification_failed");
-    }
+    // A saved-draft list reopen is required even after the Save button succeeds.
+    result.draft_reopen_verified = await verifyPersistedDraft(frame, page, job);
 
     await frame.evaluate(({ key, value }) => localStorage.setItem(key, value), { key: markerKey, value: fingerprint });
     result.status = "DRAFT_SAVED";
@@ -2270,6 +2339,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "GET" && parsedUrl.pathname === "/pipeline/health") {
     handlePipelineHealth(req, res, parsedUrl);
+    return;
+  }
+  if (req.method === "GET" && parsedUrl.pathname === "/runtime-status") {
+    handleRuntimeStatus(req, res, parsedUrl);
     return;
   }
   if (req.method === "GET" && parsedUrl.pathname === "/pipeline/status") {
