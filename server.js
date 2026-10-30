@@ -179,63 +179,6 @@ function handlePipelineHealth(req, res, url) {
     note: "URL readiness is not end-to-end verification; persistence and daily scheduler must be checked separately." }));
 }
 
-// Read-only runtime diagnostics. This is an observation, NOT an atomic reservation
-// and must never be used as the sole permission to overwrite an existing job.
-function handleRuntimeStatus(req, res, url) {
-  if (!pipelineAuthorized(req, url)) {
-    res.statusCode = 403;
-    res.end(JSON.stringify({ error: "forbidden" }));
-    return;
-  }
-  res.setHeader("cache-control", "no-store");
-  let runtimeJobPresent = false;
-  let runtimeContentId = null;
-  let expectedImages = null;
-  let presentImages = null;
-  let readError = null;
-  try {
-    runtimeJobPresent = fs.existsSync(RUNTIME_JOB_FILE);
-    if (runtimeJobPresent) {
-      const job = JSON.parse(fs.readFileSync(RUNTIME_JOB_FILE, "utf8"));
-      if (!job || typeof job !== "object" || Array.isArray(job) || !job.content_id || !Array.isArray(job.images)) {
-        throw new Error("invalid_runtime_job");
-      }
-      runtimeContentId = String(job.content_id).slice(0, 80);
-      expectedImages = job.images.length;
-      presentImages = job.images.filter((image) => {
-        const relative = String(image || "");
-        if (!/^(?:\.\.\/)?tmp\/work4-runtime-[a-zA-Z0-9._-]+-\d+\.(?:png|jpg)$/i.test(relative)) return false;
-        return fs.existsSync(path.join(ROOT, relative));
-      }).length;
-    }
-  } catch (error) {
-    readError = "runtime_job_unreadable";
-    out("runtime_status_read_error", error.message);
-  }
-  const result = {
-    ok: readError === null,
-    read_only: true,
-    work4_running: Boolean(work4RunPromise),
-    lock_scope: "single_controller_process_only",
-    runtime_job_present: runtimeJobPresent,
-    runtime_content_id: runtimeContentId,
-    expected_images: expectedImages,
-    present_images: presentImages,
-    last_result: {
-      content_id: lastResult.content_id || null,
-      status: lastResult.status || "UNKNOWN",
-      draft_saved: lastResult.draft_saved === true,
-      published: lastResult.published === true,
-      draft_reopen_verified: lastResult.draft_reopen_verified === true,
-    },
-    upload_permission_granted: false,
-    warning: "Read-only snapshot; does not guarantee an atomic upload lock or absence of another worker.",
-    ...(readError ? { error: readError } : {}),
-  };
-  res.statusCode = readError ? 503 : 200;
-  res.end(JSON.stringify(result));
-}
-
 function handlePipelineStatus(req, res, url) {
   if (!pipelineAuthorized(req, url)) {
     res.statusCode = 403;
@@ -2339,10 +2282,6 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "GET" && parsedUrl.pathname === "/pipeline/health") {
     handlePipelineHealth(req, res, parsedUrl);
-    return;
-  }
-  if (req.method === "GET" && parsedUrl.pathname === "/runtime-status") {
-    handleRuntimeStatus(req, res, parsedUrl);
     return;
   }
   if (req.method === "GET" && parsedUrl.pathname === "/pipeline/status") {
