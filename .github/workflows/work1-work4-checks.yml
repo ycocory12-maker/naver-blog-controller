@@ -4,6 +4,7 @@ on:
     paths:
       - "server.js"
       - "scripts/check_pipeline_config.js"
+      - "scripts/test_work4_guards.js"
       - ".github/workflows/work1-work4-checks.yml"
   push:
     branches:
@@ -11,6 +12,7 @@ on:
     paths:
       - "server.js"
       - "scripts/check_pipeline_config.js"
+      - "scripts/test_work4_guards.js"
       - ".github/workflows/work1-work4-checks.yml"
 jobs:
   static-checks:
@@ -24,6 +26,8 @@ jobs:
         run: |
           node --check server.js
           node --check scripts/check_pipeline_config.js
+      - name: Work4 guard unit tests
+        run: node scripts/test_work4_guards.js
       - name: Missing configuration is a blocker
         run: |
           if env -u WORK2_TRIGGER_URL -u WORK3_TRIGGER_URL -u PIPELINE_STATE_FILE node scripts/check_pipeline_config.js; then
