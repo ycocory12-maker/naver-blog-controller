@@ -21,15 +21,12 @@ class NaverAdapter {
     throw Error('unique_visible_button_missing:'+name);
   }
   async pasteHTML(html) {
-    // Uses the editor's paste handler; never mutates its internal document model.
-    await this.frame.evaluate(html => {
-      const el=document.activeElement;
-      if(!el || !el.isContentEditable) throw Error('editor_focus_missing');
-      const data=new DataTransfer(); data.setData('text/html',html);
+    // Use a real clipboard paste so SmartEditor handles formatting in its model.
+    await this.frame.evaluate(async html => {
       const d=document.createElement('div'); d.innerHTML=html;
-      data.setData('text/plain',d.textContent);
-      el.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:data}));
+      await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([html],{type:'text/html'}),'text/plain':new Blob([d.textContent],{type:'text/plain'})})]);
     },html);
+    await this.page.keyboard.press('Control+V');
   }
   async prepare(job) {
     for(const b of job.blocks.filter(b=>b.type==='image')) {
@@ -40,26 +37,29 @@ class NaverAdapter {
     }
     this.browser=await require('./cdp').connect(this.chromium,this.endpoint);
     const context=this.browser.contexts()[0]; if(!context) throw Error('browser_context_missing');
+    await context.grantPermissions(['clipboard-read','clipboard-write'],{origin:'https://blog.naver.com'});
     // Use an isolated tab; never overwrite an arbitrary existing tab or draft.
     this.page=await context.newPage();
     await this.page.goto(`https://blog.naver.com/${BLOG}?Redirect=Write`,{waitUntil:'domcontentloaded'});
     this.frame=await this.locateEditor();
-    const title=this.frame.locator('.se-documentTitle [contenteditable="true"]');
-    const body=this.frame.locator('.se-component.se-text [contenteditable="true"]').first();
+    const title=this.frame.locator('.se-documentTitle .se-title-text');
+    const body=this.frame.locator('.se-component.se-text .se-module-text').first();
     if(await title.count()!==1 || !await body.count()) throw Error('editor_fields_missing');
     if(norm(await title.innerText()) || norm((await this.frame.locator('.se-component.se-text').allInnerTexts()).join(''))) throw Error('nonempty_editor_requires_manual_recovery');
-    await title.fill(job.title);
+    await title.click();await this.page.keyboard.insertText(job.title);
     await body.click();
     for(const b of job.blocks) {
       if(b.type==='image') {
         const before=await this.frame.locator('.se-component.se-image').count();
-        const [chooser]=await Promise.all([this.page.waitForEvent('filechooser',{timeout:10000}),(await this.button('사진')).click()]);
+        const [chooser]=await Promise.all([this.page.waitForEvent('filechooser',{timeout:10000}),(await this.button(/^사진/)).click()]);
         await chooser.setFiles(path.join(this.assets,b.file));
         await this.frame.waitForFunction(n=>document.querySelectorAll('.se-component.se-image').length===n+1,before,{timeout:60000});
         const last=this.frame.locator('.se-component').last(); await last.click();
         await this.page.keyboard.press('ArrowDown'); await this.page.keyboard.press('End'); await this.page.keyboard.press('Enter');
       } else {
         await this.pasteHTML(renderBlock(b));
+        const expected=b.type==='table'?b.rows.flat().join(''):b.runs.map(r=>r.text).join('');
+        await this.frame.waitForFunction(text=>(document.querySelector('.se-main-container')?.innerText || '').replace(/[\s\u200b\ufeff]/g,'').includes(text),norm(expected),{timeout:10000});
         await this.page.keyboard.press('ArrowDown'); await this.page.keyboard.press('End'); await this.page.keyboard.press('Enter');
       }
     }
@@ -135,7 +135,7 @@ class NaverAdapter {
   async diagnostics() {
     if(!this.page) return {stage:'browser_connection'};
     const pages=[];
-    for(const frame of this.page.frames()) pages.push({url:frame.url(),editor:await frame.locator('.se-documentTitle').count(),buttons:await frame.getByRole('button').allTextContents()});
+    for(const frame of this.page.frames()) pages.push({url:frame.url(),editor:await frame.locator('.se-documentTitle').count(),buttons:await frame.getByRole('button').allTextContents(),fields:await frame.locator('.se-title-text,.se-component.se-text .se-module-text').evaluateAll(es=>es.map(e=>({tag:e.tagName,class:e.className,text:e.innerText.slice(0,100)}))),focus:await frame.evaluate(()=>({tag:document.activeElement?.tagName,class:document.activeElement?.className}))});
     return {url:this.page.url(),frames:pages};
   }
 }
