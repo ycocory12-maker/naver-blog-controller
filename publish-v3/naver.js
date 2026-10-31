@@ -29,6 +29,7 @@ class NaverAdapter {
     await this.page.keyboard.press('Control+V');
   }
   async prepare(job) {
+    this.progress?.('connecting_browser');
     for(const b of job.blocks.filter(b=>b.type==='image')) {
       const file=path.join(this.assets,b.file);
       if(!fs.existsSync(file) || !fs.statSync(file).isFile() || fs.statSync(file).size>15*1024*1024) throw Error('image_missing_or_too_large:'+b.file);
@@ -40,8 +41,19 @@ class NaverAdapter {
     await context.grantPermissions(['clipboard-read','clipboard-write'],{origin:'https://blog.naver.com'});
     // Use an isolated tab; never overwrite an arbitrary existing tab or draft.
     this.page=await context.newPage();
+    this.progress?.('opening_editor');
     await this.page.goto(`https://blog.naver.com/${BLOG}?Redirect=Write`,{waitUntil:'domcontentloaded'});
     this.frame=await this.locateEditor();
+    // Recovery prompts can appear after the editor modules have loaded.
+    for(let i=0;i<24;i++) {
+      const recovery=this.frame.getByText(/작성 중인 글이 있습니다|이어서 작성하시겠습니까/);
+      if(await recovery.count() && await recovery.first().isVisible()) {
+        const cancel=this.frame.getByRole('button',{name:'취소',exact:true});
+        if(await cancel.count()!==1) throw Error('recovery_cancel_not_unique');
+        await cancel.click();break;
+      }
+      await new Promise(r=>setTimeout(r,250));
+    }
     const title=this.frame.locator('.se-documentTitle .se-title-text');
     const body=this.frame.locator('.se-component.se-text .se-module-text').first();
     if(await title.count()!==1 || !await body.count()) throw Error('editor_fields_missing');
@@ -49,9 +61,12 @@ class NaverAdapter {
     const emptyTitle=await title.evaluate(e=>e.classList.contains('se-is-empty'));
     const emptyBody=await body.evaluate(e=>e.classList.contains('se-is-empty'));
     if(!emptyTitle || !emptyBody || await this.frame.locator('.se-component.se-image, .se-component.se-table').count()) throw Error('nonempty_editor_requires_manual_recovery');
+    this.progress?.('entering_title');
     await title.click();await this.page.keyboard.insertText(job.title);
     await body.click();
+    let index=0;
     for(const b of job.blocks) {
+      this.progress?.(`block_${++index}_${b.type}`);
       if(b.type==='image') {
         const before=await this.frame.locator('.se-component.se-image').count();
         const [chooser]=await Promise.all([this.page.waitForEvent('filechooser',{timeout:10000}),(await this.button(/^사진/)).click()]);

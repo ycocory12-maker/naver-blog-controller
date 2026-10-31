@@ -69,6 +69,7 @@ async function execute(store, job, adapter) {
     }
     record = {id:job.id,hash,job,status:'EDITING',updated_at:new Date().toISOString()};
     store.put(record);
+    adapter.progress = step => {record.step=step;record.updated_at=new Date().toISOString();store.put(record);};
     const save = status => { record.status=status; record.updated_at=new Date().toISOString(); store.put(record); };
     await adapter.prepare(job);
     await adapter.verifyEditor(job);
@@ -82,7 +83,7 @@ async function execute(store, job, adapter) {
     record.url=url; save('PUBLISHED');
     return record;
   } catch(e) {
-    if(record) { record.status=['PUBLISHING','VERIFYING'].includes(record.status)?'NEEDS_RECONCILIATION':'FAILED'; record.error=String(e.message).slice(0,500); if(adapter.diagnostics) record.diagnostics=await adapter.diagnostics().catch(()=>({unavailable:true})); store.put(record); }
+    if(record) { record.status=['PUBLISHING','VERIFYING'].includes(record.status)?'NEEDS_RECONCILIATION':'FAILED'; record.updated_at=new Date().toISOString();record.error=String(e.message).slice(0,500); if(adapter.diagnostics) record.diagnostics=await adapter.diagnostics().catch(()=>({unavailable:true})); store.put(record); }
     throw e;
   } finally { try { await adapter.close?.(); } finally { unlock(); } }
 }
