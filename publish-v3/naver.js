@@ -195,18 +195,17 @@ class NaverAdapter {
     this.progress?.('publication_settings');
     await (await this.button('발행')).click();
     if(job.category) {
-      const current=this.frame.getByRole('button',{name:job.category,exact:true});
-      if(await current.count()!==1 || !await current.isVisible()) {
-        const panels=this.frame.getByText('카테고리',{exact:true});
-        if(await panels.count()!==1)throw Error('category_label_not_unique');
-        const row=panels.locator('xpath=..');const picker=row.getByRole('button');
-        if(await picker.count()!==1)throw Error('category_picker_not_unique');await picker.click();
-        let choice=this.frame.getByRole('option',{name:job.category,exact:true});
+      const picker=this.frame.getByRole('button',{name:'카테고리 목록 버튼',exact:true});
+      if(await picker.count()!==1)throw Error('category_picker_not_unique');
+      if(norm(await picker.innerText())!==norm(job.category)) {
+        await picker.click();
+        let choice=this.frame.getByRole('menuitem',{name:job.category,exact:true});
         if(!await choice.count())choice=this.frame.getByText(job.category,{exact:true});
         if(await choice.count()!==1)throw Error('category_choice_not_unique');await choice.click();
       }
-      const chosen=this.frame.getByRole('button',{name:job.category,exact:true});
-      if(await chosen.count()!==1 || !await chosen.isVisible())throw Error('category_selection_not_verified');
+      const chosen=this.frame.locator(`[data-testid="categoryItemText_${job.category_no}"]`);
+      await chosen.waitFor({state:'visible',timeout:10000});
+      if(norm(await chosen.innerText())!==norm(job.category))throw Error('category_selection_not_verified');
     }
     // A second explicit Publish button is required; unknown layouts fail closed.
     if(job.tags?.length) {
