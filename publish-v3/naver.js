@@ -38,7 +38,7 @@ class NaverAdapter {
       const resolved=fs.realpathSync(file);
       if(path.dirname(resolved)!==fs.realpathSync(this.assets)) throw Error('image_outside_asset_directory');
     }
-    this.browser=await this.chromium.connectOverCDP(this.endpoint);
+    this.browser=await require('./cdp').connect(this.chromium,this.endpoint);
     const context=this.browser.contexts()[0]; if(!context) throw Error('browser_context_missing');
     // Use an isolated tab; never overwrite an arbitrary existing tab or draft.
     this.page=await context.newPage();

@@ -38,16 +38,19 @@ function start(env=process.env,options={}) {
     }
     const match=req.url.match(/^\/jobs\/([a-zA-Z0-9_-]{1,80})$/);
     if(req.method==='GET' && match) { const job=store.get(match[1]); return send(job?200:404,job || {error:'not_found'}); }
-    if(req.method!=='POST' || req.url!=='/jobs') return send(404,{error:'not_found'});
+    const retry=req.url.match(/^\/jobs\/([a-zA-Z0-9_-]{1,80})\/retry$/);
+    if(req.method!=='POST' || (req.url!=='/jobs' && !retry)) return send(404,{error:'not_found'});
     if(busy) return send(409,{error:'worker_busy'});
     busy=true;
     try {
       let size=0, chunks=[];
       req.setTimeout(15000,()=>req.destroy());
       for await(const chunk of req) { size+=chunk.length; if(size>1024*1024) throw Error('payload_too_large'); chunks.push(chunk); }
-      const job=validate(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      const previous=retry?store.get(retry[1]):null;
+      if(retry && previous?.status!=='FAILED') return send(409,{error:'only_pre_publish_failed_jobs_can_retry'});
+      const job=validate(retry?previous.job:JSON.parse(Buffer.concat(chunks).toString('utf8')));
       const old=store.get(job.id);
-      if(old) {
+      if(old && !retry) {
         const {fingerprint}=require('./core');
         if(old.hash!==fingerprint(job)) return send(409,{error:'id_already_used_with_different_content'});
         return send(['PUBLISHED','DRAFT_SAVED'].includes(old.status)?200:409,old);
