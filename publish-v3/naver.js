@@ -114,8 +114,8 @@ class NaverAdapter {
       if(!buffer.length)return;
       this.progress?.('text_group_ending_at_'+index);
       const inputs=buffer.map(b=>b.runs?{...b,runs:b.runs.map(r=>r.href?{...r,text:r.text+' '+r.href,href:undefined}:r)}:b);
-      const html=inputs.map(renderBlock).join('<p><br></p>');
-      const plain=inputs.map(b=>b.rows?b.rows.map(r=>r.join('\t')).join('\n'):b.runs.map(r=>r.text).join('')).join('\n\n');
+      const html=inputs.map(renderBlock).join('<p><br></p>')+'<p><br></p>';
+      const plain=inputs.map(b=>b.rows?b.rows.map(r=>r.join('\t')).join('\n'):b.runs.map(r=>r.text).join('')).join('\n\n')+'\n\n';
       await this.pasteHTML(html,plain);
       const phrases=buffer.flatMap(b=>b.rows?b.rows.flat():b.runs.map(r=>r.text)).map(norm);
       await this.frame.waitForFunction(parts=>{const text=(document.body.innerText || '').replace(/[\s\u200b\ufeff]/g,'');let offset=0;for(const p of parts){const at=text.indexOf(p,offset);if(at<0)return false;offset=at+p.length;}return true;},phrases,{timeout:10000});
