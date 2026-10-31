@@ -45,7 +45,10 @@ class NaverAdapter {
     const title=this.frame.locator('.se-documentTitle .se-title-text');
     const body=this.frame.locator('.se-component.se-text .se-module-text').first();
     if(await title.count()!==1 || !await body.count()) throw Error('editor_fields_missing');
-    if(norm(await title.innerText()) || norm((await this.frame.locator('.se-component.se-text').allInnerTexts()).join(''))) throw Error('nonempty_editor_requires_manual_recovery');
+    // Placeholder copy is rendered as innerText even in an empty SmartEditor module.
+    const emptyTitle=await title.evaluate(e=>e.classList.contains('se-is-empty'));
+    const emptyBody=await body.evaluate(e=>e.classList.contains('se-is-empty'));
+    if(!emptyTitle || !emptyBody || await this.frame.locator('.se-component.se-image, .se-component.se-table').count()) throw Error('nonempty_editor_requires_manual_recovery');
     await title.click();await this.page.keyboard.insertText(job.title);
     await body.click();
     for(const b of job.blocks) {
