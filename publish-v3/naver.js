@@ -132,5 +132,11 @@ class NaverAdapter {
     // Keep a failed editor open for manual recovery; disconnect only this CDP client.
     if(this.browser) await this.browser.close();
   }
+  async diagnostics() {
+    if(!this.page) return {stage:'browser_connection'};
+    const pages=[];
+    for(const frame of this.page.frames()) pages.push({url:frame.url(),editor:await frame.locator('.se-documentTitle').count(),buttons:await frame.getByRole('button').allTextContents()});
+    return {url:this.page.url(),frames:pages};
+  }
 }
 module.exports={NaverAdapter};

@@ -6,7 +6,7 @@ const BLOG = 'tlsehdduq0152';
 const escape = x => String(x).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function validate(job) {
   if (!job || !/^[a-zA-Z0-9_-]{1,80}$/.test(job.id || '')) throw Error('invalid_id');
-  if (job.blog !== BLOG || !['publish','draft'].includes(job.mode)) throw Error('invalid_destination_or_mode');
+  if (job.blog !== BLOG || job.mode !== 'publish') throw Error('invalid_destination_or_mode');
   if (typeof job.title !== 'string' || !job.title.trim() || job.title.length > 100) throw Error('invalid_title');
   if (!Array.isArray(job.blocks) || !job.blocks.length || job.blocks.length > 100) throw Error('invalid_blocks');
   for (const b of job.blocks) {
@@ -18,6 +18,7 @@ function validate(job) {
       if (b.rows.some(r => !Array.isArray(r) || r.length !== b.rows[0].length || r.some(c => typeof c !== 'string' || !c.trim()))) throw Error('invalid_table_cells');
     } else {
       if (!Array.isArray(b.runs) || !b.runs.length || b.runs.some(r => typeof r.text !== 'string' || !r.text.trim() || r.text.length > 10000)) throw Error('invalid_runs');
+      for(const r of b.runs) if(r.href) { const u=new URL(r.href); if(u.protocol!=='https:' || u.username || u.password) throw Error('invalid_link'); }
     }
   }
   if (job.tags && (!Array.isArray(job.tags) || job.tags.length > 30 || job.tags.some(t => typeof t !== 'string' || !/^[가-힣a-zA-Z0-9_]{1,30}$/.test(t)))) throw Error('invalid_tags');
@@ -26,7 +27,7 @@ function validate(job) {
 function renderBlock(b) {
   if (b.type === 'image') throw Error('image_requires_native_upload');
   if (b.type === 'table') return '<table style="border-collapse:collapse;width:100%"><tbody>' + b.rows.map((r,i) => '<tr>' + r.map(c => `<${i?'td':'th'} style="border:1px solid #aaa;padding:10px;${i?'':'background-color:#e6f1dd;'}">${escape(c)}</${i?'td':'th'}>`).join('') + '</tr>').join('') + '</tbody></table>';
-  const text = b.runs.map(r => `<span style="${r.bold?'font-weight:700;':''}${r.highlight?'background-color:#fff59d;':''}">${escape(r.text)}</span>`).join('');
+  const text = b.runs.map(r => {const span=`<span style="${r.bold?'font-weight:700;':''}${r.highlight?'background-color:#fff59d;':''}">${escape(r.text)}</span>`;return r.href?`<a href="${escape(r.href)}">${span}</a>`:span;}).join('');
   return b.type === 'heading' ? `<h2>${text}</h2>` : `<p>${text}</p>`;
 }
 function fingerprint(job) { return crypto.createHash('sha256').update(JSON.stringify(job)).digest('hex'); }
@@ -64,7 +65,7 @@ async function execute(store, job, adapter) {
       if (old.hash !== hash) throw Error('id_already_used_with_different_content');
       if (['PUBLISHED','DRAFT_SAVED'].includes(old.status)) return old;
       // Editing may have persisted a partial draft; uncertain publish may already be live.
-      throw Error('existing_job_requires_reconciliation');
+      if(old.status !== 'QUEUED') throw Error('existing_job_requires_reconciliation');
     }
     record = {id:job.id,hash,job,status:'EDITING',updated_at:new Date().toISOString()};
     store.put(record);
@@ -81,7 +82,7 @@ async function execute(store, job, adapter) {
     record.url=url; save('PUBLISHED');
     return record;
   } catch(e) {
-    if(record) { record.status=['PUBLISHING','VERIFYING'].includes(record.status)?'NEEDS_RECONCILIATION':'FAILED'; record.error=String(e.message).slice(0,500); store.put(record); }
+    if(record) { record.status=['PUBLISHING','VERIFYING'].includes(record.status)?'NEEDS_RECONCILIATION':'FAILED'; record.error=String(e.message).slice(0,500); if(adapter.diagnostics) record.diagnostics=await adapter.diagnostics().catch(()=>({unavailable:true})); store.put(record); }
     throw e;
   } finally { try { await adapter.close?.(); } finally { unlock(); } }
 }
