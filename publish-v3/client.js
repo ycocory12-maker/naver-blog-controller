@@ -3,7 +3,7 @@ const fs=require('node:fs'),path=require('node:path');
 const {validate}=require('./core');
 async function main() {
   const [action,configFile,jobFile]=process.argv.slice(2);
-  if(!['upload','publish','retry','verify','status'].includes(action) || !configFile || !jobFile) throw Error('usage: node client.js upload|publish|retry|verify|status settings.json job.json');
+  if(!['upload','publish','queue','queue-status','retry','verify','status'].includes(action) || !configFile || !jobFile) throw Error('usage: node client.js upload|publish|queue|queue-status|retry|verify|status settings.json job.json');
   const config=JSON.parse(fs.readFileSync(configFile,'utf8')),raw=JSON.parse(fs.readFileSync(jobFile,'utf8'));
   const job=validate(require('./content-policy').enrich(raw,raw.profile));
   const origin='https://naver-publisher-v3-production.up.railway.app';
@@ -22,7 +22,11 @@ async function main() {
       }
       console.log(JSON.stringify(await request('/assets/'+b.file,{method:'PUT',headers:{'content-type':/\.png$/i.test(b.file)?'image/png':'image/jpeg'},body:fs.readFileSync(file)})));
     }
-  } else if(action==='publish') {
+  } else if(action==='queue') {
+    const auditFile=path.join(path.dirname(jobFile),'internal-review.json'),audit=fs.existsSync(auditFile)?JSON.parse(fs.readFileSync(auditFile,'utf8')):{};
+    console.log(JSON.stringify(await request('/scheduler/queue',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({content_id:job.content_id,job,audit})})));
+  } else if(action==='queue-status') console.log(JSON.stringify(await request('/scheduler'),null,2));
+  else if(action==='publish') {
     const {job:payload,...result}=await request('/jobs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(job)});console.log(JSON.stringify(result));
   } else if(action==='retry') console.log(JSON.stringify(await request('/jobs/'+job.id+'/retry',{method:'POST'})));
   else if(action==='verify') {
