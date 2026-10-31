@@ -10,13 +10,47 @@ function start(env=process.env,options={}) {
   if(!path.isAbsolute(env.DATA_DIR)) throw Error('DATA_DIR_must_be_absolute_persistent_volume');
   const store=new Store(path.join(env.DATA_DIR,'jobs')); let busy=false;
   const assets=path.join(env.DATA_DIR,'assets');fs.mkdirSync(assets,{recursive:true});
+  const adapterFactory=options.adapterFactory || (()=>new NaverAdapter({endpoint:env.CDP_ENDPOINT,assets,chromium:require('playwright-core').chromium}));
+  const scheduler=new (require('./scheduler').Scheduler)(env.DATA_DIR,store,{adapterFactory,clock:options.clock,generate:options.generate || require('./generator').createGenerator(env,assets)});
+  scheduler.recover();
   const server=http.createServer(async(req,res)=>{
     res.setHeader('content-type','application/json; charset=utf-8');
     const send=(code,data)=>{res.statusCode=code;res.end(JSON.stringify(data));};
     res.setHeader('cache-control','no-store');
-    if(req.method==='GET' && req.url==='/health') return send(200,{ok:true,busy,version:'3.1.0',commit:env.RAILWAY_GIT_COMMIT_SHA || null});
+    if(req.method==='GET' && req.url==='/health') return send(200,{ok:true,busy,version:'3.2.0',commit:env.RAILWAY_GIT_COMMIT_SHA || null});
     const incoming=Buffer.from(req.headers.authorization || ''), expected=Buffer.from('Bearer '+env.API_TOKEN);
     if(incoming.length!==expected.length || !crypto.timingSafeEqual(incoming,expected)) return send(401,{error:'unauthorized'});
+    if(req.url.startsWith('/scheduler')) {
+      if(req.method==='GET' && req.url==='/scheduler')return send(200,scheduler.summary());
+      const article=req.url.match(/^\/scheduler\/items\/(\d{3,})$/);
+      if(req.method==='GET'&&article){const data=scheduler.item(Number(article[1]));return send(data?200:404,data||{error:'not_found'});}
+      if(req.method!=='POST'||!['/scheduler/config','/scheduler/queue','/scheduler/run','/scheduler/fill','/scheduler/render'].includes(req.url))return send(404,{error:'not_found'});
+      if(busy)return send(409,{error:'worker_busy'});busy=true;
+      try {
+        if(['/scheduler/run','/scheduler/fill'].includes(req.url)) {
+          if(req.url==='/scheduler/fill') {
+            send(202,{status:'GENERATION_ACCEPTED'});await scheduler.fillOne();
+          }else {
+            if(!scheduler.state().enabled)return send(200,{status:'DISABLED'});
+            const publication=await scheduler.publishDue(),generation=await scheduler.fillOne();send(200,{publication,generation});
+          }
+        } else {
+          let size=0,chunks=[];for await(const c of req){size+=c.length;if(size>1024*1024)throw Error('payload_too_large');chunks.push(c);}
+          const body=JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          if(req.url==='/scheduler/config')send(200,scheduler.configure(body));
+          else if(req.url==='/scheduler/render') {
+            if(!/^[a-zA-Z0-9_-]{1,70}$/.test(body.id||''))throw Error('invalid_diagram_id');
+            send(200,{files:await require('./illustrations').renderDiagrams({endpoint:env.CDP_ENDPOINT,assets,id:body.id,slides:body.slides,chromium:require('playwright-core').chromium})});
+          }
+          else {
+            const job=validate(require('./content-policy').enrich(body.job,'v89'));
+            for(const image of job.blocks.filter(b=>b.type==='image'))if(!fs.existsSync(path.join(assets,image.file)))throw Error('asset_missing:'+image.file);
+            scheduler.ready(body.content_id,job,body.audit);send(200,{status:'READY',content_id:body.content_id,job_id:job.id});
+          }
+        }
+      }catch(e){if(!res.writableEnded)send(400,{error:String(e.message).slice(0,240)});else console.error(JSON.stringify({event:'generation_failed',error:String(e.message).slice(0,240)}));}
+      finally{busy=false;}return;
+    }
     const asset=req.url.match(/^\/assets\/([a-zA-Z0-9_-]+\.(?:png|jpg|jpeg))$/i);
     if(req.method==='GET' && asset) {
       const file=path.join(assets,asset[1]);
@@ -78,6 +112,7 @@ function start(env=process.env,options={}) {
       const original=store.get(raw.id);
       if(!retry && ['PUBLISHED','SUPERSEDED'].includes(original?.status) && original.hash===require('./core').fingerprint(raw))return send(200,original);
       const job=validate(require('./content-policy').enrich(raw,env.CONTENT_PROFILE));
+      if(job.editorial_style==='consultation')require('./marketing').validateMarketing(job);
       if(job.action==='update' && job.supersedes_id) {
         const base=store.get(job.supersedes_id);
         if(!base || base.status!=='PUBLISHED' || base.url!==job.target_url || base.job.title!==job.expected_title)return send(409,{error:'original_publication_not_verified'});
