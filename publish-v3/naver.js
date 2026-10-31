@@ -141,7 +141,12 @@ class NaverAdapter {
           await chooser.setFiles(path.join(this.assets,b.file));
         }
         await this.frame.waitForFunction(n=>document.querySelectorAll('.se-component.se-image').length===n+1,before,{timeout:60000});
-        await this.frame.waitForFunction(()=>[...document.querySelectorAll('.se-component.se-image img')].every(img=>img.complete && img.naturalWidth>0),null,{timeout:60000});
+        const dimensions=require('./images').imageInfo(fs.readFileSync(path.join(this.assets,b.file)));
+        await this.frame.waitForFunction(expected=>{
+          const components=[...document.querySelectorAll('.se-component.se-image')],last=components.at(-1);
+          const img=last?.querySelector('img.se-image-resource') || last?.querySelector('img');
+          return img?.complete && img.naturalWidth>=100 && Math.abs(img.naturalWidth/img.naturalHeight-expected.width/expected.height)<.04 && !/전송중/.test(last.innerText);
+        },dimensions,{timeout:60000});
         if(index<job.blocks.length) {
           const last=this.frame.locator('.se-component.se-image').last();await last.click();
           await this.page.keyboard.press('ArrowDown');await this.page.keyboard.press('End');await this.page.keyboard.press('Enter');
