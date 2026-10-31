@@ -29,18 +29,21 @@ class NaverAdapter {
     }
     throw Error('unique_visible_button_missing:'+name);
   }
-  async pasteHTML(html) {
+  async pasteHTML(html,plainText) {
     // Use a real clipboard paste so SmartEditor handles formatting in its model.
-    await this.frame.evaluate(async html => {
+    await this.frame.evaluate(async ({html,plainText}) => {
       const d=document.createElement('div'); d.innerHTML=html;
-      const plain=d.textContent;
+      const plain=plainText ?? d.textContent;
       for(let i=0;i<4;i++) {
         await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([html],{type:'text/html'}),'text/plain':new Blob([plain],{type:'text/plain'})})]);
         await new Promise(r=>setTimeout(r,80));
-        if(await navigator.clipboard.readText()===plain)return;
+        const items=await navigator.clipboard.read();let actualHTML='';
+        for(const item of items)if(item.types.includes('text/html')){actualHTML=await (await item.getType('text/html')).text();break;}
+        const check=document.createElement('div');check.innerHTML=actualHTML;
+        if(await navigator.clipboard.readText()===plain && check.textContent===d.textContent)return;
       }
       throw Error('clipboard_content_not_verified');
-    },html);
+    },{html,plainText});
     await this.page.keyboard.press('Control+V');
   }
   async focusAppend() {
@@ -106,28 +109,39 @@ class NaverAdapter {
     this.progress?.('entering_title');
     await title.click();if(job.action==='update'){await this.page.keyboard.press('Control+A');await this.page.keyboard.press('Backspace');}await this.page.keyboard.insertText(job.title);
     await body.click();
-    let index=0;
+    let index=0,buffer=[];
+    const flush=async()=>{
+      if(!buffer.length)return;
+      this.progress?.('text_group_ending_at_'+index);
+      const inputs=buffer.map(b=>b.runs?{...b,runs:b.runs.map(r=>r.href?{...r,text:r.text+' '+r.href,href:undefined}:r)}:b);
+      const html=inputs.map(renderBlock).join('<p><br></p>');
+      const plain=inputs.map(b=>b.rows?b.rows.map(r=>r.join('\t')).join('\n'):b.runs.map(r=>r.text).join('')).join('\n\n');
+      await this.pasteHTML(html,plain);
+      const phrases=buffer.flatMap(b=>b.rows?b.rows.flat():b.runs.map(r=>r.text)).map(norm);
+      await this.frame.waitForFunction(parts=>{const text=(document.body.innerText || '').replace(/[\s\u200b\ufeff]/g,'');let offset=0;for(const p of parts){const at=text.indexOf(p,offset);if(at<0)return false;offset=at+p.length;}return true;},phrases,{timeout:10000});
+      await this.page.keyboard.press('End');await this.page.keyboard.press('Enter');
+      buffer=[];
+    };
     for(const b of job.blocks) {
-      this.progress?.(`block_${++index}_${b.type}`);
+      index++;
       if(b.type==='image') {
-        if(index>1)await this.focusAppend();
+        await flush();this.progress?.(`block_${index}_image`);
         const before=await this.frame.locator('.se-component.se-image').count();
         const [chooser]=await Promise.all([this.page.waitForEvent('filechooser',{timeout:10000}),(await this.button(/^사진/)).click()]);
         await chooser.setFiles(path.join(this.assets,b.file));
         await this.frame.waitForFunction(n=>document.querySelectorAll('.se-component.se-image').length===n+1,before,{timeout:60000});
         await this.frame.waitForFunction(()=>[...document.querySelectorAll('.se-component.se-image img')].every(img=>img.complete && img.naturalWidth>0),null,{timeout:60000});
-        const last=this.frame.locator('.se-component').last(); await last.click();
-        await this.page.keyboard.press('ArrowDown'); await this.page.keyboard.press('End'); await this.page.keyboard.press('Enter');
+        if(index<job.blocks.length) {
+          const last=this.frame.locator('.se-component.se-image').last();await last.click();
+          await this.page.keyboard.press('ArrowDown');await this.page.keyboard.press('End');await this.page.keyboard.press('Enter');
+          const following=this.frame.locator('.se-component.se-text .se-module-text').last();
+          if(await following.evaluate(e=>e.classList.contains('se-is-empty')))await following.click();
+        }
       } else {
-        await this.focusAppend();
-        // Naver converts a pasted anchor-only block into a link card and drops its label.
-        // Keep the source name and full URL together as visible text.
-        const input=b.runs?{...b,runs:b.runs.map(r=>r.href?{...r,text:r.text+' '+r.href,href:undefined}:r)}:b;
-        await this.pasteHTML(renderBlock(input));
-        const expected=b.type==='table'?b.rows.flat().join(''):b.runs.map(r=>r.text).join('');
-        await this.frame.waitForFunction(text=>(document.body.innerText || '').replace(/[\s\u200b\ufeff]/g,'').includes(text),norm(expected),{timeout:10000});
+        buffer.push(b);
       }
     }
+    await flush();
   }
   async verifyContent(frame,job,published=false) {
     const root=frame.locator(published?'.se-main-container':'body');
