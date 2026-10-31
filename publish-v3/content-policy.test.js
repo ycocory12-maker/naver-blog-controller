@@ -14,3 +14,7 @@ test('footer must be last and relative image positions must match text',()=>{
   assert.throws(()=>verifyLayout(job,[{type:'image',ratio:1.5},{type:'image',ratio:1179/604},{type:'text',text:'본문'}]),/not_last/);
   assert.throws(()=>verifyLayout(job,[{type:'image',ratio:1.5},{type:'text',text:'본문'},{type:'image',ratio:1.5}]),/dimensions/);
 });
+test('six illustrations cannot compensate for a thin manuscript',()=>{
+  const blocks=[];for(let i=0;i<6;i++){blocks.push({type:'image',file:'i'+i+'.png',alt:'설명'});blocks.push({type:'paragraph',runs:[{text:'짧은 원고'}]});}
+  assert.throws(()=>validateQuality(enrich({title:'병원 개원',blocks},'v89')),/too_short/);
+});

@@ -76,8 +76,12 @@ function start(env=process.env,options={}) {
       if(retry && previous?.status!=='FAILED') return send(409,{error:'only_pre_publish_failed_jobs_can_retry'});
       const raw=retry?previous.job:JSON.parse(Buffer.concat(chunks).toString('utf8'));
       const original=store.get(raw.id);
-      if(!retry && original?.status==='PUBLISHED' && original.hash===require('./core').fingerprint(raw))return send(200,original);
+      if(!retry && ['PUBLISHED','SUPERSEDED'].includes(original?.status) && original.hash===require('./core').fingerprint(raw))return send(200,original);
       const job=validate(require('./content-policy').enrich(raw,env.CONTENT_PROFILE));
+      if(job.action==='update' && job.supersedes_id) {
+        const base=store.get(job.supersedes_id);
+        if(!base || base.status!=='PUBLISHED' || base.url!==job.target_url || base.job.title!==job.expected_title)return send(409,{error:'original_publication_not_verified'});
+      }
       const old=store.get(job.id);
       if(old && !retry) {
         const {fingerprint}=require('./core');
@@ -87,7 +91,10 @@ function start(env=process.env,options={}) {
       store.put({id:job.id,hash:require('./core').fingerprint(job),job,status:'QUEUED',updated_at:new Date().toISOString()});
       const adapter=options.adapterFactory ? options.adapterFactory() : new NaverAdapter({endpoint:env.CDP_ENDPOINT,assets,chromium:require('playwright-core').chromium});
       send(202,{id:job.id,status:'ACCEPTED',status_url:'/jobs/'+job.id});
-      await execute(store,job,adapter);
+      const completed=await execute(store,job,adapter);
+      if(completed.status==='PUBLISHED' && job.action==='update' && job.supersedes_id) {
+        const base=store.get(job.supersedes_id);base.status='SUPERSEDED';base.superseded_by=job.id;store.put(base);
+      }
     } catch(e) {
       if(!res.writableEnded) send(400,{error:String(e.message).slice(0,200)});
       else console.error(JSON.stringify({event:'job_failed',error:e.message}));
