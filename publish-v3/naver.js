@@ -33,9 +33,23 @@ class NaverAdapter {
     // Use a real clipboard paste so SmartEditor handles formatting in its model.
     await this.frame.evaluate(async html => {
       const d=document.createElement('div'); d.innerHTML=html;
-      await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([html],{type:'text/html'}),'text/plain':new Blob([d.textContent],{type:'text/plain'})})]);
+      const plain=d.textContent;
+      for(let i=0;i<4;i++) {
+        await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([html],{type:'text/html'}),'text/plain':new Blob([plain],{type:'text/plain'})})]);
+        await new Promise(r=>setTimeout(r,80));
+        if(await navigator.clipboard.readText()===plain)return;
+      }
+      throw Error('clipboard_content_not_verified');
     },html);
     await this.page.keyboard.press('Control+V');
+  }
+  async focusAppend() {
+    const last=this.frame.locator('.se-component.se-text .se-module-text').last();
+    if(!await last.count())throw Error('append_text_module_missing');
+    await last.scrollIntoViewIfNeeded();await last.click();await this.page.keyboard.press('Control+End');
+    if(!await last.evaluate(e=>e.classList.contains('se-is-empty')) && norm(await last.innerText())) {
+      await this.page.keyboard.press('Enter');await this.page.keyboard.press('Enter');
+    }
   }
   async prepare(job) {
     this.jobId=job.id;
@@ -96,6 +110,7 @@ class NaverAdapter {
     for(const b of job.blocks) {
       this.progress?.(`block_${++index}_${b.type}`);
       if(b.type==='image') {
+        if(index>1)await this.focusAppend();
         const before=await this.frame.locator('.se-component.se-image').count();
         const [chooser]=await Promise.all([this.page.waitForEvent('filechooser',{timeout:10000}),(await this.button(/^사진/)).click()]);
         await chooser.setFiles(path.join(this.assets,b.file));
@@ -103,15 +118,14 @@ class NaverAdapter {
         await this.frame.waitForFunction(()=>[...document.querySelectorAll('.se-component.se-image img')].every(img=>img.complete && img.naturalWidth>0),null,{timeout:60000});
         const last=this.frame.locator('.se-component').last(); await last.click();
         await this.page.keyboard.press('ArrowDown'); await this.page.keyboard.press('End'); await this.page.keyboard.press('Enter');
-        if(index<job.blocks.length)await this.page.keyboard.press('Enter');
       } else {
+        await this.focusAppend();
         // Naver converts a pasted anchor-only block into a link card and drops its label.
         // Keep the source name and full URL together as visible text.
         const input=b.runs?{...b,runs:b.runs.map(r=>r.href?{...r,text:r.text+' '+r.href,href:undefined}:r)}:b;
         await this.pasteHTML(renderBlock(input));
         const expected=b.type==='table'?b.rows.flat().join(''):b.runs.map(r=>r.text).join('');
         await this.frame.waitForFunction(text=>(document.body.innerText || '').replace(/[\s\u200b\ufeff]/g,'').includes(text),norm(expected),{timeout:10000});
-        await this.page.keyboard.press('ArrowDown'); await this.page.keyboard.press('End'); await this.page.keyboard.press('Enter');await this.page.keyboard.press('Enter');
       }
     }
   }
