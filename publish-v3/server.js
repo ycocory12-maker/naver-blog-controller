@@ -18,6 +18,11 @@ function start(env=process.env,options={}) {
     const incoming=Buffer.from(req.headers.authorization || ''), expected=Buffer.from('Bearer '+env.API_TOKEN);
     if(incoming.length!==expected.length || !crypto.timingSafeEqual(incoming,expected)) return send(401,{error:'unauthorized'});
     const asset=req.url.match(/^\/assets\/([a-zA-Z0-9_-]+\.png)$/);
+    if(req.method==='GET' && asset) {
+      const file=path.join(assets,asset[1]);
+      if(!fs.existsSync(file)) return send(404,{error:'not_found'});
+      res.setHeader('content-type','image/png');res.end(fs.readFileSync(file));return;
+    }
     if(req.method==='PUT' && asset) {
       if(busy) return send(409,{error:'worker_busy'});
       try {

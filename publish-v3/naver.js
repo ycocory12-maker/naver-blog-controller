@@ -29,6 +29,7 @@ class NaverAdapter {
     await this.page.keyboard.press('Control+V');
   }
   async prepare(job) {
+    this.jobId=job.id;
     this.progress?.('connecting_browser');
     for(const b of job.blocks.filter(b=>b.type==='image')) {
       const file=path.join(this.assets,b.file);
@@ -75,7 +76,10 @@ class NaverAdapter {
         const last=this.frame.locator('.se-component').last(); await last.click();
         await this.page.keyboard.press('ArrowDown'); await this.page.keyboard.press('End'); await this.page.keyboard.press('Enter');
       } else {
-        await this.pasteHTML(renderBlock(b));
+        // Naver converts a pasted anchor-only block into a link card and drops its label.
+        // Keep the source name and full URL together as visible text.
+        const input=b.runs?{...b,runs:b.runs.map(r=>r.href?{...r,text:r.text+' '+r.href,href:undefined}:r)}:b;
+        await this.pasteHTML(renderBlock(input));
         const expected=b.type==='table'?b.rows.flat().join(''):b.runs.map(r=>r.text).join('');
         await this.frame.waitForFunction(text=>(document.body.innerText || '').replace(/[\s\u200b\ufeff]/g,'').includes(text),norm(expected),{timeout:10000});
         await this.page.keyboard.press('ArrowDown'); await this.page.keyboard.press('End'); await this.page.keyboard.press('Enter');
@@ -152,9 +156,10 @@ class NaverAdapter {
   }
   async diagnostics() {
     if(!this.page) return {stage:'browser_connection'};
+    if(this.jobId) await this.page.screenshot({path:path.join(this.assets,this.jobId+'-debug.png')}).catch(()=>{});
     const pages=[];
     for(const frame of this.page.frames()) pages.push({url:frame.url(),editor:await frame.locator('.se-documentTitle').count(),buttons:await frame.getByRole('button').allTextContents(),fields:await frame.locator('.se-title-text,.se-component.se-text .se-module-text').evaluateAll(es=>es.map(e=>({tag:e.tagName,class:e.className,text:e.innerText.slice(0,100)}))),focus:await frame.evaluate(()=>({tag:document.activeElement?.tagName,class:document.activeElement?.className}))});
-    return {url:this.page.url(),frames:pages};
+    return {url:this.page.url(),frames:pages,document:this.frame?await this.frame.evaluate(()=>({images:document.querySelectorAll('.se-component.se-image').length,tables:document.querySelectorAll('.se-component table').length,tail:document.body.innerText.slice(-1500)})):null,screenshot:this.jobId?this.jobId+'-debug.png':null};
   }
 }
 module.exports={NaverAdapter};
