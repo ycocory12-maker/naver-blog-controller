@@ -52,10 +52,21 @@ class NaverAdapter {
     // Use an isolated tab; never overwrite an arbitrary existing tab or draft.
     this.page=await context.newPage();
     this.progress?.('opening_editor');
-    await this.page.goto(`https://blog.naver.com/${BLOG}?Redirect=Write`,{waitUntil:'domcontentloaded'});
+    if(job.action==='update') {
+      await this.page.goto(job.target_url,{waitUntil:'domcontentloaded'});
+      let post;
+      for(let n=0;n<40 && !post;n++) {for(const f of this.page.frames())if(await f.locator('.se-main-container').count()===1){post=f;break;}if(!post)await new Promise(r=>setTimeout(r,250));}
+      if(!post || !(await post.locator('body').innerText()).includes(job.expected_title))throw Error('update_original_post_not_verified');
+      const backup={url:job.target_url,title:job.expected_title,body:await post.locator('.se-main-container').innerText(),saved_at:new Date().toISOString()};
+      fs.writeFileSync(path.join(this.assets,job.id+'-before-update.json'),JSON.stringify(backup,null,2));
+      let edit=post.getByRole('link',{name:'수정',exact:true});
+      if(!await edit.count())edit=post.getByRole('button',{name:'수정',exact:true});
+      if(await edit.count()!==1)throw Error('unique_edit_control_missing');
+      await edit.click();
+    } else await this.page.goto(`https://blog.naver.com/${BLOG}?Redirect=Write${job.category_no?'&categoryNo='+job.category_no:''}`,{waitUntil:'domcontentloaded'});
     this.frame=await this.locateEditor();
     // Recovery prompts can appear after the editor modules have loaded.
-    for(let i=0;i<24;i++) {
+    for(let i=0;i<(job.action==='update'?0:24);i++) {
       const recovery=this.frame.getByText(/작성 중인 글이 있습니다|이어서 작성하시겠습니까/);
       if(await recovery.count() && await recovery.first().isVisible()) {
         const cancel=this.frame.getByRole('button',{name:'취소',exact:true});
@@ -67,12 +78,19 @@ class NaverAdapter {
     const title=this.frame.locator('.se-documentTitle .se-title-text');
     const body=this.frame.locator('.se-component.se-text .se-module-text').first();
     if(await title.count()!==1 || !await body.count()) throw Error('editor_fields_missing');
+    if(job.action==='update') {
+      if(norm(await title.innerText())!==norm(job.expected_title))throw Error('update_editor_title_mismatch');
+      await body.click();await this.page.keyboard.press('Control+A');await this.page.keyboard.press('Control+A');await this.page.keyboard.press('Backspace');
+      await new Promise(r=>setTimeout(r,500));
+      const left=(await this.frame.locator('.se-component:not(.se-documentTitle)').allInnerTexts()).join('').replace(/글감과 함께 나의 일상을 기록해보세요!/g,'');
+      if(norm(left) || await this.frame.locator('.se-component.se-image,.se-component.se-table').count())throw Error('update_body_clear_not_verified');
+    }
     // Placeholder copy is rendered as innerText even in an empty SmartEditor module.
     const emptyTitle=await title.evaluate(e=>e.classList.contains('se-is-empty'));
     const emptyBody=await body.evaluate(e=>e.classList.contains('se-is-empty'));
-    if(!emptyTitle || !emptyBody || await this.frame.locator('.se-component.se-image, .se-component.se-table').count()) throw Error('nonempty_editor_requires_manual_recovery');
+    if((!emptyTitle && job.action!=='update') || !emptyBody || await this.frame.locator('.se-component.se-image, .se-component.se-table').count()) throw Error('nonempty_editor_requires_manual_recovery');
     this.progress?.('entering_title');
-    await title.click();await this.page.keyboard.insertText(job.title);
+    await title.click();if(job.action==='update'){await this.page.keyboard.press('Control+A');await this.page.keyboard.press('Backspace');}await this.page.keyboard.insertText(job.title);
     await body.click();
     let index=0;
     for(const b of job.blocks) {
@@ -84,6 +102,7 @@ class NaverAdapter {
         await this.frame.waitForFunction(n=>document.querySelectorAll('.se-component.se-image').length===n+1,before,{timeout:60000});
         const last=this.frame.locator('.se-component').last(); await last.click();
         await this.page.keyboard.press('ArrowDown'); await this.page.keyboard.press('End'); await this.page.keyboard.press('Enter');
+        if(index<job.blocks.length)await this.page.keyboard.press('Enter');
       } else {
         // Naver converts a pasted anchor-only block into a link card and drops its label.
         // Keep the source name and full URL together as visible text.
@@ -91,7 +110,7 @@ class NaverAdapter {
         await this.pasteHTML(renderBlock(input));
         const expected=b.type==='table'?b.rows.flat().join(''):b.runs.map(r=>r.text).join('');
         await this.frame.waitForFunction(text=>(document.body.innerText || '').replace(/[\s\u200b\ufeff]/g,'').includes(text),norm(expected),{timeout:10000});
-        await this.page.keyboard.press('ArrowDown'); await this.page.keyboard.press('End'); await this.page.keyboard.press('Enter');
+        await this.page.keyboard.press('ArrowDown'); await this.page.keyboard.press('End'); await this.page.keyboard.press('Enter');await this.page.keyboard.press('Enter');
       }
     }
   }
@@ -102,7 +121,8 @@ class NaverAdapter {
       text:el.innerText,
       images:el.querySelectorAll('.se-component.se-image').length,
       tables:[...el.querySelectorAll('table')].map(t=>[...t.rows].map(r=>[...r.cells].map(c=>c.innerText))),
-      styles:[...el.querySelectorAll('span,strong,b,mark')].map(e=>({text:e.textContent,bold:parseInt(getComputedStyle(e).fontWeight)>=600,bg:getComputedStyle(e).backgroundColor}))
+      styles:[...el.querySelectorAll('span,strong,b,mark')].map(e=>({text:e.textContent,bold:parseInt(getComputedStyle(e).fontWeight)>=600,bg:getComputedStyle(e).backgroundColor})),
+      units:[...el.querySelectorAll('.se-component')].filter(e=>!e.parentElement.closest('.se-component') && !e.matches('.se-documentTitle')).map(e=>e.matches('.se-image')?{type:'image',ratio:(e.querySelector('img')?.naturalWidth||0)/(e.querySelector('img')?.naturalHeight||1)}:{type:'text',text:e.innerText,empty:!!e.querySelector('.se-module-text.se-is-empty') && !e.querySelector('.se-module-text:not(.se-is-empty)')}).filter(e=>e.type==='image' || (!e.empty && e.text.trim()))
     }));
     const actual=norm(snapshot.text); let offset=0;
     for(const b of job.blocks) {
@@ -118,6 +138,7 @@ class NaverAdapter {
       }
     }
     if(snapshot.images!==job.blocks.filter(b=>b.type==='image').length) throw Error('image_count_mismatch');
+    if(job.profile==='v89')require('./layout').verifyLayout(job,snapshot.units);
     if(!published && norm(await frame.locator('.se-documentTitle').innerText())!==norm(job.title)) throw Error('title_mismatch');
   }
   async verifyEditor(job) { await this.verifyContent(this.frame,job); }
@@ -128,6 +149,20 @@ class NaverAdapter {
   async preparePublication(job) {
     this.progress?.('publication_settings');
     await (await this.button('발행')).click();
+    if(job.category) {
+      const current=this.frame.getByRole('button',{name:job.category,exact:true});
+      if(await current.count()!==1 || !await current.isVisible()) {
+        const panels=this.frame.getByText('카테고리',{exact:true});
+        if(await panels.count()!==1)throw Error('category_label_not_unique');
+        const row=panels.locator('xpath=..');const picker=row.getByRole('button');
+        if(await picker.count()!==1)throw Error('category_picker_not_unique');await picker.click();
+        let choice=this.frame.getByRole('option',{name:job.category,exact:true});
+        if(!await choice.count())choice=this.frame.getByText(job.category,{exact:true});
+        if(await choice.count()!==1)throw Error('category_choice_not_unique');await choice.click();
+      }
+      const chosen=this.frame.getByRole('button',{name:job.category,exact:true});
+      if(await chosen.count()!==1 || !await chosen.isVisible())throw Error('category_selection_not_verified');
+    }
     // A second explicit Publish button is required; unknown layouts fail closed.
     if(job.tags?.length) {
       const tag=this.page.getByPlaceholder('태그 입력');
@@ -138,9 +173,9 @@ class NaverAdapter {
     let selected=false;
     for(const f of this.page.frames()) {
       const radio=f.getByRole('radio',{name:'전체공개',exact:true});
-      if(await radio.count()===1) { await radio.check(); selected=await radio.isChecked(); break; }
+      if(await radio.count()===1) { if(job.visibility!=='preserve')await radio.check();selected=await radio.isChecked();break; }
     }
-    if(!selected) throw Error('public_visibility_not_verified');
+    if(!selected && job.visibility!=='preserve') throw Error('public_visibility_not_verified');
     const close=this.frame.getByRole('button',{name:'발행 설정 닫기',exact:true});
     if(await close.count()!==1 || !await close.isVisible()) throw Error('publication_panel_not_verified');
     const panel=close.locator('xpath=ancestor::div[.//button[normalize-space(.)="발행"]][1]');
@@ -163,6 +198,7 @@ class NaverAdapter {
     for(let i=0;i<40;i++) {
       for(const f of this.page.frames()) if(await f.locator('.se-main-container').count()===1) {
         if(!(await f.locator('body').innerText()).includes(job.title)) throw Error('published_title_missing');
+        if(job.category && !norm(await f.locator('body').innerText()).includes(norm('이 블로그 '+job.category+' 카테고리 글')))throw Error('published_category_not_verified');
         await this.verifyContent(f,job,true); return url;
       }
       await new Promise(r=>setTimeout(r,250));
@@ -200,7 +236,7 @@ class NaverAdapter {
     if(this.jobId) await this.page.screenshot({path:path.join(this.assets,this.jobId+'-debug.png')}).catch(()=>{});
     const pages=[];
     for(const frame of this.page.frames()) pages.push({url:frame.url(),editor:await frame.locator('.se-documentTitle').count(),buttons:await frame.getByRole('button').allTextContents(),fields:await frame.locator('.se-title-text,.se-component.se-text .se-module-text').evaluateAll(es=>es.map(e=>({tag:e.tagName,class:e.className,text:e.innerText.slice(0,100)}))),focus:await frame.evaluate(()=>({tag:document.activeElement?.tagName,class:document.activeElement?.className}))});
-    return {url:this.page.url(),frames:pages,document:this.frame?await this.frame.evaluate(()=>({images:document.querySelectorAll('.se-component.se-image').length,tables:document.querySelectorAll('.se-component table').length,tail:document.body.innerText.slice(-1500)})):null,screenshot:this.jobId?this.jobId+'-debug.png':null};
+    return {url:this.page.url(),frames:pages,document:this.frame?await this.frame.evaluate(()=>({images:document.querySelectorAll('.se-component.se-image').length,tables:document.querySelectorAll('.se-component table').length,tail:document.body.innerText.slice(-1500),categoryMarkup:[...document.querySelectorAll('*')].filter(e=>e.children.length===0 && e.textContent==='카테고리').map(e=>e.parentElement.outerHTML.slice(0,2000))})):null,screenshot:this.jobId?this.jobId+'-debug.png':null};
   }
 }
 module.exports={NaverAdapter};

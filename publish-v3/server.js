@@ -74,7 +74,10 @@ function start(env=process.env,options={}) {
         previous.status='FAILED';previous.reconciliation='confirmed_no_final_click:button_resolution_threw_before_click';store.put(previous);
       }
       if(retry && previous?.status!=='FAILED') return send(409,{error:'only_pre_publish_failed_jobs_can_retry'});
-      const job=validate(retry?previous.job:JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      const raw=retry?previous.job:JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      const original=store.get(raw.id);
+      if(!retry && original?.status==='PUBLISHED' && original.hash===require('./core').fingerprint(raw))return send(200,original);
+      const job=validate(require('./content-policy').enrich(raw,env.CONTENT_PROFILE));
       const old=store.get(job.id);
       if(old && !retry) {
         const {fingerprint}=require('./core');
