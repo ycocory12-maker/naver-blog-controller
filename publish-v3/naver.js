@@ -13,6 +13,15 @@ class NaverAdapter {
     }
     throw Error('editor_not_found_or_login_required');
   }
+  async categories() {
+    this.browser=await require('./cdp').connect(this.chromium,this.endpoint);
+    const context=this.browser.contexts()[0];if(!context)throw Error('browser_context_missing');
+    this.page=await context.newPage();await this.page.goto(`https://blog.naver.com/${BLOG}`,{waitUntil:'domcontentloaded'});
+    await new Promise(r=>setTimeout(r,1500));
+    const frames=[];
+    for(const f of this.page.frames()) frames.push({url:f.url(),links:await f.locator('a').evaluateAll(es=>es.map(e=>({text:e.innerText.trim(),href:e.getAttribute('href'),onclick:e.getAttribute('onclick'),class:e.className})).filter(e=>/category|카테고리/i.test((e.href||'')+' '+(e.onclick||'')+' '+e.class)))});
+    return {blog:BLOG,frames};
+  }
   async button(name) {
     for(const frame of this.page.frames()) {
       const b=frame.getByRole('button',{name,exact:true});

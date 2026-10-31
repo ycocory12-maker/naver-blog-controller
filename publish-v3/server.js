@@ -17,11 +17,11 @@ function start(env=process.env,options={}) {
     if(req.method==='GET' && req.url==='/health') return send(200,{ok:true,busy,version:'3.1.0',commit:env.RAILWAY_GIT_COMMIT_SHA || null});
     const incoming=Buffer.from(req.headers.authorization || ''), expected=Buffer.from('Bearer '+env.API_TOKEN);
     if(incoming.length!==expected.length || !crypto.timingSafeEqual(incoming,expected)) return send(401,{error:'unauthorized'});
-    const asset=req.url.match(/^\/assets\/([a-zA-Z0-9_-]+\.png)$/);
+    const asset=req.url.match(/^\/assets\/([a-zA-Z0-9_-]+\.(?:png|jpg|jpeg))$/i);
     if(req.method==='GET' && asset) {
       const file=path.join(assets,asset[1]);
       if(!fs.existsSync(file)) return send(404,{error:'not_found'});
-      res.setHeader('content-type','image/png');res.end(fs.readFileSync(file));return;
+      res.setHeader('content-type',/\.png$/i.test(file)?'image/png':'image/jpeg');res.end(fs.readFileSync(file));return;
     }
     if(req.method==='PUT' && asset) {
       if(busy) return send(409,{error:'worker_busy'});
@@ -29,8 +29,8 @@ function start(env=process.env,options={}) {
         let size=0,chunks=[];req.setTimeout(15000,()=>req.destroy());
         for await(const c of req) {size+=c.length;if(size>15*1024*1024) throw Error('payload_too_large');chunks.push(c);}
         const buffer=Buffer.concat(chunks);
-        if(buffer.length<24 || !buffer.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])) || buffer.toString('ascii',12,16)!=='IHDR') return send(400,{error:'invalid_png'});
-        const width=buffer.readUInt32BE(16),height=buffer.readUInt32BE(20);
+        const {width,height,type}=require('./images').imageInfo(buffer);
+        if((/\.png$/i.test(asset[1]))!==(type==='image/png'))return send(400,{error:'image_extension_mismatch'});
         if(!width || !height || width>8192 || height>8192) return send(400,{error:'invalid_dimensions'});
         const file=path.join(assets,asset[1]),hash=crypto.createHash('sha256').update(buffer).digest('hex');
         if(fs.existsSync(file)) {
@@ -42,6 +42,11 @@ function start(env=process.env,options={}) {
       } catch(e) {return send(400,{error:e.message});}
     }
     const match=req.url.match(/^\/jobs\/([a-zA-Z0-9_-]{1,80})$/);
+    if(req.method==='GET' && req.url==='/categories') {
+      if(busy)return send(409,{error:'worker_busy'});busy=true;let adapter;
+      try {adapter=new NaverAdapter({endpoint:env.CDP_ENDPOINT,assets,chromium:require('playwright-core').chromium});send(200,await adapter.categories());}
+      catch(e){send(400,{error:e.message});}finally{try{await adapter?.close();}finally{busy=false;}}return;
+    }
     if(req.method==='GET' && match) { const job=store.get(match[1]); return send(job?200:404,job || {error:'not_found'}); }
     const verify=req.url.match(/^\/jobs\/([a-zA-Z0-9_-]{1,80})\/verify$/);
     if(req.method==='POST' && verify) {

@@ -13,7 +13,7 @@ async function main() {
     if(!response.ok) throw Error(JSON.stringify({http:response.status,...data}));return data;
   }
   if(action==='upload') {
-    for(const b of job.blocks.filter(b=>b.type==='image')) console.log(JSON.stringify(await request('/assets/'+b.file,{method:'PUT',headers:{'content-type':'image/png'},body:fs.readFileSync(path.join(path.dirname(jobFile),b.file))})));
+    for(const b of job.blocks.filter(b=>b.type==='image')) console.log(JSON.stringify(await request('/assets/'+b.file,{method:'PUT',headers:{'content-type':/\.png$/i.test(b.file)?'image/png':'image/jpeg'},body:fs.readFileSync(path.join(path.dirname(jobFile),b.file))})));
   } else if(action==='publish') {
     const {job:payload,...result}=await request('/jobs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(job)});console.log(JSON.stringify(result));
   } else if(action==='retry') console.log(JSON.stringify(await request('/jobs/'+job.id+'/retry',{method:'POST'})));
