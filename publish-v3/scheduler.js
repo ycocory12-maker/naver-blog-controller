@@ -70,6 +70,7 @@ class Scheduler {
     if(s.slots.filter(x=>x.day===t.day).length>=4)return {status:'DAILY_LIMIT'};
     const next=s.items.filter(i=>i.status!=='PUBLISHED').sort((a,b)=>a.content_id-b.content_id)[0];
     if(!next||next.status!=='READY')return {status:next?'WAITING_FOR_RECONCILIATION':'NO_READY_ARTICLE'};
+    if(next.content_id!==s.completed_through+1+s.items.filter(i=>i.status==='PUBLISHED').length)return {status:'MISSING_PREVIOUS_CONTENT_NUMBER'};
     const article=this.item(next.content_id);if(!article)throw Error('queued_article_missing');
     // Reserve the slot before any browser input. An uncertain result never reuses it.
     next.status='RUNNING';s.slots.push({key,day:t.day,job_id:next.job_id,content_id:next.content_id,status:'RUNNING',at:new Date(now).toISOString()});this.save(s);

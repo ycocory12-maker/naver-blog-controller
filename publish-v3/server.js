@@ -11,7 +11,7 @@ function start(env=process.env,options={}) {
   const store=new Store(path.join(env.DATA_DIR,'jobs')); let busy=false;
   const assets=path.join(env.DATA_DIR,'assets');fs.mkdirSync(assets,{recursive:true});
   const adapterFactory=options.adapterFactory || (()=>new NaverAdapter({endpoint:env.CDP_ENDPOINT,assets,chromium:require('playwright-core').chromium}));
-  const scheduler=new (require('./scheduler').Scheduler)(env.DATA_DIR,store,{adapterFactory,clock:options.clock,generate:options.generate || require('./generator').createGenerator(env,assets)});
+  const scheduler=new (require('./scheduler').Scheduler)(env.DATA_DIR,store,{adapterFactory,clock:options.clock,generate:options.generate || (env.AUTO_GENERATE==='true'?require('./generator').createGenerator(env,assets):null)});
   scheduler.recover();
   const server=http.createServer(async(req,res)=>{
     res.setHeader('content-type','application/json; charset=utf-8');
