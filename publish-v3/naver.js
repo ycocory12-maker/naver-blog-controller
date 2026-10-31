@@ -119,7 +119,14 @@ class NaverAdapter {
       await this.pasteHTML(html,plain);
       const phrases=buffer.flatMap(b=>b.rows?b.rows.flat():b.runs.map(r=>r.text)).map(norm);
       await this.frame.waitForFunction(parts=>{const text=(document.body.innerText || '').replace(/[\s\u200b\ufeff]/g,'');let offset=0;for(const p of parts){const at=text.indexOf(p,offset);if(at<0)return false;offset=at+p.length;}return true;},phrases,{timeout:10000});
-      await this.page.keyboard.press('End');await this.page.keyboard.press('Enter');
+      await new Promise(r=>setTimeout(r,150));
+      await this.page.keyboard.press('ArrowDown');await this.page.keyboard.press('End');await this.page.keyboard.press('Enter');
+      const paragraph=this.frame.locator('.se-component.se-text .se-module-text p').last();
+      if(await paragraph.count()) {
+        await paragraph.scrollIntoViewIfNeeded();await paragraph.click();
+        await paragraph.evaluate(el=>{const range=document.createRange();range.selectNodeContents(el);range.collapse(false);const s=window.getSelection();s.removeAllRanges();s.addRange(range);document.dispatchEvent(new Event('selectionchange',{bubbles:true}));});
+        await this.page.keyboard.press('ArrowRight');
+      }
       buffer=[];
     };
     for(const b of job.blocks) {
@@ -269,7 +276,7 @@ class NaverAdapter {
     if(this.jobId) await this.page.screenshot({path:path.join(this.assets,this.jobId+'-debug.png')}).catch(()=>{});
     const pages=[];
     for(const frame of this.page.frames()) pages.push({url:frame.url(),editor:await frame.locator('.se-documentTitle').count(),buttons:await frame.getByRole('button').allTextContents(),fields:await frame.locator('.se-title-text,.se-component.se-text .se-module-text').evaluateAll(es=>es.map(e=>({tag:e.tagName,class:e.className,text:e.innerText.slice(0,100)}))),focus:await frame.evaluate(()=>({tag:document.activeElement?.tagName,class:document.activeElement?.className}))});
-    return {url:this.page.url(),frames:pages,document:this.frame?await this.frame.evaluate(()=>({images:document.querySelectorAll('.se-component.se-image').length,tables:document.querySelectorAll('.se-component table').length,tail:document.body.innerText.slice(-1500),categoryMarkup:[...document.querySelectorAll('*')].filter(e=>e.children.length===0 && e.textContent==='카테고리').map(e=>e.parentElement.outerHTML.slice(0,2000))})):null,screenshot:this.jobId?this.jobId+'-debug.png':null};
+    return {url:this.page.url(),frames:pages,document:this.frame?await this.frame.evaluate(()=>({images:document.querySelectorAll('.se-component.se-image').length,tables:document.querySelectorAll('.se-component table').length,tail:document.body.innerText.slice(-1500),fileInputs:[...document.querySelectorAll('input[type=file]')].map(e=>e.outerHTML),photoButtons:[...document.querySelectorAll('button')].filter(e=>e.innerText.startsWith('사진')).map(e=>e.outerHTML),paragraphs:[...document.querySelectorAll('.se-component.se-text p')].slice(-3).map(e=>({class:e.className,text:e.innerText})),categoryMarkup:[...document.querySelectorAll('*')].filter(e=>e.children.length===0 && e.textContent==='카테고리').map(e=>e.parentElement.outerHTML.slice(0,2000))})):null,screenshot:this.jobId?this.jobId+'-debug.png':null};
   }
 }
 module.exports={NaverAdapter};
