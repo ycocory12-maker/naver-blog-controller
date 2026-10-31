@@ -114,7 +114,8 @@ class NaverAdapter {
     // Draft persistence needs reopening and verification; unsupported until UI calibration.
     throw Error('draft_mode_not_calibrated_use_publish');
   }
-  async publish(job) {
+  async preparePublication(job) {
+    this.progress?.('publication_settings');
     await (await this.button('발행')).click();
     // A second explicit Publish button is required; unknown layouts fail closed.
     if(job.tags?.length) {
@@ -129,6 +130,8 @@ class NaverAdapter {
       if(await radio.count()===1) { await radio.check(); selected=await radio.isChecked(); break; }
     }
     if(!selected) throw Error('public_visibility_not_verified');
+  }
+  async publish() {
     await (await this.button('발행')).click();
   }
   async verifyPublished(job) {

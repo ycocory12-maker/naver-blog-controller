@@ -37,6 +37,10 @@ test('uncertain final click persists reconciliation and blocks retry',async()=>{
 test('post verification failure cannot report success',async()=>{
   const {store,cleanup}=setup();try {await assert.rejects(execute(store,job(),adapter({verifyPublished:async()=>null})));assert.equal(store.get('topic-001').status,'NEEDS_RECONCILIATION');} finally {cleanup();}
 });
+test('publication settings failure happens before the irreversible click boundary',async()=>{
+  const {store,cleanup}=setup();let clicked=false;
+  try {await assert.rejects(execute(store,job(),adapter({preparePublication:async()=>{throw Error('public_visibility_not_verified');},publish:async()=>{clicked=true;}})));assert.equal(clicked,false);assert.equal(store.get(job().id).status,'FAILED');}finally{cleanup();}
+});
 test('same id with changed body is rejected without overwriting record',async()=>{
   const {store,cleanup}=setup();try {await execute(store,job(),adapter());await assert.rejects(execute(store,{...job(),title:'수정'},adapter()),/different_content/);assert.equal(store.get('topic-001').job.title,'테스트');} finally {cleanup();}
 });

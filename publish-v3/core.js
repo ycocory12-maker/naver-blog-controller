@@ -74,6 +74,7 @@ async function execute(store, job, adapter) {
     await adapter.prepare(job);
     await adapter.verifyEditor(job);
     if (job.mode === 'draft') { await adapter.saveDraft(job); save('DRAFT_SAVED'); return record; }
+    await adapter.preparePublication?.(job);
     // Persist BEFORE the click. A crash from this point must never trigger another publish.
     save('PUBLISHING');
     await adapter.publish(job);
