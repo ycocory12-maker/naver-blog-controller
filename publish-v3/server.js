@@ -52,6 +52,10 @@ function start(env=process.env,options={}) {
       req.setTimeout(15000,()=>req.destroy());
       for await(const chunk of req) { size+=chunk.length; if(size>1024*1024) throw Error('payload_too_large'); chunks.push(chunk); }
       const previous=retry?store.get(retry[1]):null;
+      // Upgrade records from the earlier selector guard: it threw before any final click.
+      if(previous?.status==='NEEDS_RECONCILIATION' && previous.error==='unique_visible_button_missing:발행' && previous.step==='publication_settings') {
+        previous.status='FAILED';previous.reconciliation='confirmed_no_final_click:button_resolution_threw_before_click';store.put(previous);
+      }
       if(retry && previous?.status!=='FAILED') return send(409,{error:'only_pre_publish_failed_jobs_can_retry'});
       const job=validate(retry?previous.job:JSON.parse(Buffer.concat(chunks).toString('utf8')));
       const old=store.get(job.id);

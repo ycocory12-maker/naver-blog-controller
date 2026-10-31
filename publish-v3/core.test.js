@@ -15,6 +15,7 @@ test('reject another blog and image path traversal',()=>{
 test('escape content and render emphasis/table markup',()=>{
   const h=renderBlock({type:'paragraph',runs:[{text:'<script>&',bold:true,highlight:true}]});
   assert.ok(h.includes('&lt;script&gt;&amp;'));assert.ok(h.includes('font-weight:700'));assert.ok(h.includes('background-color:#fff59d'));
+  const plain=renderBlock({type:'paragraph',runs:[{text:'보통 문장'}]});assert.ok(plain.includes('font-weight:400'));assert.ok(plain.includes('background-color:#ffffff'));
   assert.ok(renderBlock({type:'table',rows:[['구분','내용'],['A','B']]}).includes('<th'));
 });
 test('canonical URL only from target blog, never write pages or hostile hosts',()=>{

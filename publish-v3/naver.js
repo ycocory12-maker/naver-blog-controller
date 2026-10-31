@@ -103,7 +103,9 @@ class NaverAdapter {
       if(b.type==='table' && !snapshot.tables.some(t=>JSON.stringify(t.map(r=>r.map(norm)))===JSON.stringify(b.rows.map(r=>r.map(norm))))) throw Error('table_format_not_preserved');
       for(const r of b.runs || []) {
         if(r.bold && !snapshot.styles.some(s=>s.bold && norm(s.text).includes(norm(r.text)))) throw Error('bold_not_preserved');
+        if(!r.bold && !snapshot.styles.some(s=>!s.bold && norm(s.text).includes(norm(r.text)))) throw Error('unwanted_bold_in_plain_text');
         if(r.highlight && !snapshot.styles.some(s=>!['rgba(0, 0, 0, 0)','rgb(255, 255, 255)','transparent'].includes(s.bg) && norm(s.text).includes(norm(r.text)))) throw Error('highlight_not_preserved');
+        if(!r.highlight && !snapshot.styles.some(s=>['rgba(0, 0, 0, 0)','rgb(255, 255, 255)','transparent'].includes(s.bg) && norm(s.text).includes(norm(r.text)))) throw Error('unwanted_highlight_in_plain_text');
       }
     }
     if(snapshot.images!==job.blocks.filter(b=>b.type==='image').length) throw Error('image_count_mismatch');
@@ -130,9 +132,14 @@ class NaverAdapter {
       if(await radio.count()===1) { await radio.check(); selected=await radio.isChecked(); break; }
     }
     if(!selected) throw Error('public_visibility_not_verified');
+    const close=this.frame.getByRole('button',{name:'발행 설정 닫기',exact:true});
+    if(await close.count()!==1 || !await close.isVisible()) throw Error('publication_panel_not_verified');
+    const panel=close.locator('xpath=ancestor::div[.//button[normalize-space(.)="발행"]][1]');
+    this.finalButton=panel.getByRole('button',{name:'발행',exact:true});
+    if(await this.finalButton.count()!==1 || !await this.finalButton.isVisible()) throw Error('unique_confirmation_button_missing');
   }
   async publish() {
-    await (await this.button('발행')).click();
+    await this.finalButton.click();
   }
   async verifyPublished(job) {
     let url;

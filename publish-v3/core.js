@@ -26,8 +26,8 @@ function validate(job) {
 }
 function renderBlock(b) {
   if (b.type === 'image') throw Error('image_requires_native_upload');
-  if (b.type === 'table') return '<table style="border-collapse:collapse;width:100%"><tbody>' + b.rows.map((r,i) => '<tr>' + r.map(c => `<${i?'td':'th'} style="border:1px solid #aaa;padding:10px;${i?'':'background-color:#e6f1dd;'}">${escape(c)}</${i?'td':'th'}>`).join('') + '</tr>').join('') + '</tbody></table>';
-  const text = b.runs.map(r => {const span=`<span style="${r.bold?'font-weight:700;':''}${r.highlight?'background-color:#fff59d;':''}">${escape(r.text)}</span>`;return r.href?`<a href="${escape(r.href)}">${span}</a>`:span;}).join('');
+  if (b.type === 'table') return '<table style="border-collapse:collapse;width:100%;font-size:16px"><tbody>' + b.rows.map((r,i) => '<tr>' + r.map(c => `<${i?'td':'th'} style="border:1px solid #aaa;padding:10px;font-weight:${i?'400':'700'};background-color:${i?'#ffffff':'#e6f1dd'};">${escape(c)}</${i?'td':'th'}>`).join('') + '</tr>').join('') + '</tbody></table>';
+  const text = b.runs.map(r => {const span=`<span style="font-size:${b.type==='heading'?'24':'16'}px;color:#202020;font-weight:${r.bold?'700':'400'};background-color:${r.highlight?'#fff59d':'#ffffff'};">${escape(r.text)}</span>`;return r.href?`<a href="${escape(r.href)}">${span}</a>`:span;}).join('');
   return b.type === 'heading' ? `<h2>${text}</h2>` : `<p>${text}</p>`;
 }
 function fingerprint(job) { return crypto.createHash('sha256').update(JSON.stringify(job)).digest('hex'); }
