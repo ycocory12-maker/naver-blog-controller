@@ -21,6 +21,9 @@ async function main() {
     const proof=await request('/jobs/'+job.id+'/verify',{method:'POST'});
     const response=await fetch(origin+'/assets/'+proof.screenshot,{headers,signal:AbortSignal.timeout(60000)});if(!response.ok)throw Error('screenshot_download_failed');
     fs.writeFileSync(path.join(path.dirname(jobFile),'published.png'),Buffer.from(await response.arrayBuffer()));
+    for(const [key,name] of [['table_screenshot','published-table.png'],['bottom_screenshot','published-bottom.png']]) if(proof[key]) {
+      const img=await fetch(origin+'/assets/'+proof[key],{headers,signal:AbortSignal.timeout(60000)});if(!img.ok)throw Error('evidence_download_failed');fs.writeFileSync(path.join(path.dirname(jobFile),name),Buffer.from(await img.arrayBuffer()));
+    }
     fs.writeFileSync(path.join(path.dirname(jobFile),'verification.json'),JSON.stringify(proof,null,2));console.log(JSON.stringify(proof));
   } else {const {job:payload,...state}=await request('/jobs/'+job.id);fs.writeFileSync(path.join(path.dirname(jobFile),'runtime-status.json'),JSON.stringify(state,null,2));console.log(JSON.stringify(state,null,2));}
 }
