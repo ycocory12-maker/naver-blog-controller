@@ -4,7 +4,8 @@ const {validate}=require('./core');
 async function main() {
   const [action,configFile,jobFile]=process.argv.slice(2);
   if(!['upload','publish','retry','verify','status'].includes(action) || !configFile || !jobFile) throw Error('usage: node client.js upload|publish|retry|verify|status settings.json job.json');
-  const config=JSON.parse(fs.readFileSync(configFile,'utf8')),job=validate(JSON.parse(fs.readFileSync(jobFile,'utf8')));
+  const config=JSON.parse(fs.readFileSync(configFile,'utf8')),raw=JSON.parse(fs.readFileSync(jobFile,'utf8'));
+  const job=validate(require('./content-policy').enrich(raw,raw.profile));
   const origin='https://naver-publisher-v3-production.up.railway.app';
   const headers={authorization:'Bearer '+config.API_TOKEN};
   async function request(route,options={}) {
@@ -13,7 +14,14 @@ async function main() {
     if(!response.ok) throw Error(JSON.stringify({http:response.status,...data}));return data;
   }
   if(action==='upload') {
-    for(const b of job.blocks.filter(b=>b.type==='image')) console.log(JSON.stringify(await request('/assets/'+b.file,{method:'PUT',headers:{'content-type':/\.png$/i.test(b.file)?'image/png':'image/jpeg'},body:fs.readFileSync(path.join(path.dirname(jobFile),b.file))})));
+    for(const b of job.blocks.filter(b=>b.type==='image')) {
+      const file=path.join(path.dirname(jobFile),b.file);
+      if(b.role==='footer' && !fs.existsSync(file)) {
+        const response=await fetch(origin+'/assets/'+b.file,{headers,signal:AbortSignal.timeout(60000)});
+        await response.body?.cancel();if(!response.ok)throw Error('configured_business_card_missing');console.log(JSON.stringify({file:b.file,using_configured_footer:true}));continue;
+      }
+      console.log(JSON.stringify(await request('/assets/'+b.file,{method:'PUT',headers:{'content-type':/\.png$/i.test(b.file)?'image/png':'image/jpeg'},body:fs.readFileSync(file)})));
+    }
   } else if(action==='publish') {
     const {job:payload,...result}=await request('/jobs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(job)});console.log(JSON.stringify(result));
   } else if(action==='retry') console.log(JSON.stringify(await request('/jobs/'+job.id+'/retry',{method:'POST'})));

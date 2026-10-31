@@ -265,14 +265,20 @@ class NaverAdapter {
     // A tall element screenshot is clipped by Naver's parent iframe viewport.
     // Capture actual viewport segments after scrolling each section into view.
     const file=job.id+'-published.png',tableFile=job.id+'-table.png',bottomFile=job.id+'-bottom.png';
+    const capture=async file=>{
+      await this.page.waitForLoadState('networkidle',{timeout:5000}).catch(()=>{});
+      await new Promise(r=>setTimeout(r,400));
+      await this.page.screenshot({path:path.join(this.assets,file)});
+    };
     await frame.locator('.se-main-container .se-component').first().scrollIntoViewIfNeeded();
-    await this.page.screenshot({path:path.join(this.assets,file)});
+    await capture(file);
     if(await frame.locator('.se-main-container table').count()) {
       await frame.locator('.se-main-container table').first().scrollIntoViewIfNeeded();
-      await this.page.screenshot({path:path.join(this.assets,tableFile)});
+      await capture(tableFile);
     }
     await frame.locator('.se-main-container .se-component').last().scrollIntoViewIfNeeded();
-    await this.page.screenshot({path:path.join(this.assets,bottomFile)});
+    await frame.locator('.se-main-container .se-component.se-image img').last().evaluate(async img=>{if(img.decode)await img.decode().catch(()=>{});});
+    await capture(bottomFile);
     return {url:verified,screenshot:file,table_screenshot:tableFile,bottom_screenshot:bottomFile,verified_at:new Date().toISOString()};
   }
   async diagnostics() {
