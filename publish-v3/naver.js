@@ -62,13 +62,13 @@ class NaverAdapter {
       } else {
         await this.pasteHTML(renderBlock(b));
         const expected=b.type==='table'?b.rows.flat().join(''):b.runs.map(r=>r.text).join('');
-        await this.frame.waitForFunction(text=>(document.querySelector('.se-main-container')?.innerText || '').replace(/[\s\u200b\ufeff]/g,'').includes(text),norm(expected),{timeout:10000});
+        await this.frame.waitForFunction(text=>(document.body.innerText || '').replace(/[\s\u200b\ufeff]/g,'').includes(text),norm(expected),{timeout:10000});
         await this.page.keyboard.press('ArrowDown'); await this.page.keyboard.press('End'); await this.page.keyboard.press('Enter');
       }
     }
   }
   async verifyContent(frame,job,published=false) {
-    const root=frame.locator('.se-main-container');
+    const root=frame.locator(published?'.se-main-container':'body');
     if(await root.count()!==1) throw Error('content_container_missing');
     const snapshot=await root.evaluate(el=>({
       text:el.innerText,
