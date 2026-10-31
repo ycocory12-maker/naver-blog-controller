@@ -14,7 +14,7 @@ function start(env=process.env,options={}) {
     res.setHeader('content-type','application/json; charset=utf-8');
     const send=(code,data)=>{res.statusCode=code;res.end(JSON.stringify(data));};
     res.setHeader('cache-control','no-store');
-    if(req.method==='GET' && req.url==='/health') return send(200,{ok:true,busy,version:'3.1.0'});
+    if(req.method==='GET' && req.url==='/health') return send(200,{ok:true,busy,version:'3.1.0',commit:env.RAILWAY_GIT_COMMIT_SHA || null});
     const incoming=Buffer.from(req.headers.authorization || ''), expected=Buffer.from('Bearer '+env.API_TOKEN);
     if(incoming.length!==expected.length || !crypto.timingSafeEqual(incoming,expected)) return send(401,{error:'unauthorized'});
     const asset=req.url.match(/^\/assets\/([a-zA-Z0-9_-]+\.png)$/);
@@ -43,6 +43,18 @@ function start(env=process.env,options={}) {
     }
     const match=req.url.match(/^\/jobs\/([a-zA-Z0-9_-]{1,80})$/);
     if(req.method==='GET' && match) { const job=store.get(match[1]); return send(job?200:404,job || {error:'not_found'}); }
+    const verify=req.url.match(/^\/jobs\/([a-zA-Z0-9_-]{1,80})\/verify$/);
+    if(req.method==='POST' && verify) {
+      if(busy) return send(409,{error:'worker_busy'});
+      const record=store.get(verify[1]);if(record?.status!=='PUBLISHED')return send(409,{error:'published_job_required'});
+      busy=true;let adapter;
+      try {
+        adapter=new NaverAdapter({endpoint:env.CDP_ENDPOINT,assets,chromium:require('playwright-core').chromium});
+        record.verification=await adapter.inspectPublished(record.job,record.url);store.put(record);send(200,record.verification);
+      }catch(e){send(400,{error:e.message});}
+      finally{try{await adapter?.close();}finally{busy=false;}}
+      return;
+    }
     const retry=req.url.match(/^\/jobs\/([a-zA-Z0-9_-]{1,80})\/retry$/);
     if(req.method!=='POST' || (req.url!=='/jobs' && !retry)) return send(404,{error:'not_found'});
     if(busy) return send(409,{error:'worker_busy'});

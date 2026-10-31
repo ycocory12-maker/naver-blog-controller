@@ -161,8 +161,21 @@ class NaverAdapter {
     throw Error('published_content_not_verified');
   }
   async close() {
-    // Keep a failed editor open for manual recovery; disconnect only this CDP client.
+    // This tab was created by this worker; leave all pre-existing user tabs untouched.
+    if(this.page) await this.page.close({runBeforeUnload:false}).catch(()=>{});
     if(this.browser) await this.browser.close();
+  }
+  async inspectPublished(job,url) {
+    if(!publishedURL(url)) throw Error('invalid_published_url');
+    this.browser=await require('./cdp').connect(this.chromium,this.endpoint);
+    const context=this.browser.contexts()[0];if(!context)throw Error('browser_context_missing');
+    this.page=await context.newPage();await this.page.goto(url,{waitUntil:'domcontentloaded'});
+    const verified=await this.verifyPublished(job);
+    let frame;for(const f of this.page.frames()) if(await f.locator('.se-main-container').count()===1){frame=f;break;}
+    if(!frame) throw Error('published_container_missing');
+    const file=job.id+'-published.png';
+    await frame.locator('.se-main-container').screenshot({path:path.join(this.assets,file),timeout:30000});
+    return {url:verified,screenshot:file,verified_at:new Date().toISOString()};
   }
   async diagnostics() {
     if(!this.page) return {stage:'browser_connection'};
