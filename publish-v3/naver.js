@@ -5,9 +5,12 @@ const {BLOG, renderBlock, publishedURL} = require('./core');
 const norm = s => s.replace(/[\s\u200b\ufeff]/g,'');
 class NaverAdapter {
   constructor({endpoint, assets, chromium}) { this.endpoint=endpoint; this.assets=path.resolve(assets); this.chromium=chromium; }
-  async locateEditor() {
+  async locateEditor(update=false) {
     for(let i=0;i<40;i++) {
-      for(const frame of this.page.frames()) if(await frame.locator('.se-documentTitle').count()===1) return frame;
+      for(const frame of this.page.frames()) {
+        if(update&&!/postupdate/i.test(frame.url()))continue;
+        try{if(await frame.locator('.se-documentTitle .se-title-text').count()===1)return frame;}catch(e){if(!frame.isDetached())throw e;}
+      }
       if(this.page.url().includes('nid.naver.com')) throw Error('LOGIN_REQUIRED');
       await new Promise(r=>setTimeout(r,250));
     }
@@ -81,7 +84,7 @@ class NaverAdapter {
       if(await edit.count()!==1)throw Error('unique_edit_control_missing');
       await edit.click();
     } else await this.page.goto(`https://blog.naver.com/${BLOG}?Redirect=Write${job.category_no?'&categoryNo='+job.category_no:''}`,{waitUntil:'domcontentloaded'});
-    this.frame=await this.locateEditor();
+    this.frame=await this.locateEditor(job.action==='update');
     // Recovery prompts can appear after the editor modules have loaded.
     for(let i=0;i<(job.action==='update'?0:24);i++) {
       const recovery=this.frame.getByText(/작성 중인 글이 있습니다|이어서 작성하시겠습니까/);
@@ -97,7 +100,11 @@ class NaverAdapter {
     if(await title.count()!==1 || !await body.count()) throw Error('editor_fields_missing');
     if(job.action==='update') {
       if(norm(await title.innerText())!==norm(job.expected_title))throw Error('update_editor_title_mismatch');
-      if(job.update_scope==='tags') {await this.verifyContent(this.frame,job);return;}
+      if(job.update_scope==='tags') {
+        this.progress?.('verifying_unchanged_body');let failure;
+        for(let n=0;n<80;n++){try{await this.verifyContent(this.frame,job);return;}catch(e){failure=e;await new Promise(r=>setTimeout(r,250));}}
+        throw failure;
+      }
       await body.click();await this.page.keyboard.press('Control+A');await this.page.keyboard.press('Control+A');await this.page.keyboard.press('Backspace');
       await new Promise(r=>setTimeout(r,500));
       const left=(await this.frame.locator('.se-component:not(.se-documentTitle)').allInnerTexts()).join('').replace(/글감과 함께 나의 일상을 기록해보세요!/g,'');
