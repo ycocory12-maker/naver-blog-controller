@@ -49,3 +49,13 @@ test('editorial replacement requires a paused unchanged READY record and retains
     const state=s.state();state.items[0].status='PUBLISHED';s.save(state);assert.throws(()=>s.replaceReady(38,changed,fingerprint(changed)),/unpublished/);
   }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });
+test('explicit catch-up executes only one missed slot and cannot reuse it or exceed four',async()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'naver-catchup-'));let clicks=0;
+ try {
+  const s=new Scheduler(dir,new Store(path.join(dir,'jobs')),{clock:()=>new Date('2026-11-01T10:00:00Z'),adapterFactory:()=>({prepare:async()=>{},verifyEditor:async()=>{},publish:async()=>{clicks++;},verifyPublished:async()=> 'https://blog.naver.com/tlsehdduq0152/'+(800+clicks),close:async()=>{}})});
+  s.configure({enabled:true,starts_at:'2026-10-31T23:00:00Z'});for(let n=38;n<43;n++)s.ready(n,job(n));
+  assert.equal((await s.publishDue()).status,'OUTSIDE_SLOT');assert.equal(clicks,0);
+  for(let n=0;n<4;n++){assert.equal((await s.publishDue({catchUp:true})).status,'PUBLISHED');assert.equal(clicks,n+1);}
+  assert.equal((await s.publishDue({catchUp:true})).status,'NO_MISSED_SLOT');assert.equal(clicks,4);
+ }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});
