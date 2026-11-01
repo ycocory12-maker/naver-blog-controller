@@ -23,6 +23,7 @@ function validate(job) {
   }
   if (job.tags && (!Array.isArray(job.tags) || job.tags.length > 30 || job.tags.some(t => typeof t !== 'string' || !/^[가-힣a-zA-Z0-9_]{1,30}$/.test(t)))) throw Error('invalid_tags');
   if(job.action && !['create','update'].includes(job.action))throw Error('invalid_action');
+  if(job.update_scope && (job.update_scope!=='tags'||job.action!=='update'||!job.tags?.length))throw Error('invalid_update_scope');
   if(job.action==='update' && (!publishedURL(job.target_url) || publishedURL(job.target_url)!==job.target_url || typeof job.expected_title!=='string' || !job.expected_title.trim()))throw Error('verified_update_target_required');
   require('./content-policy').validateQuality(job);
   return job;

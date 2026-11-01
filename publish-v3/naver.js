@@ -97,6 +97,7 @@ class NaverAdapter {
     if(await title.count()!==1 || !await body.count()) throw Error('editor_fields_missing');
     if(job.action==='update') {
       if(norm(await title.innerText())!==norm(job.expected_title))throw Error('update_editor_title_mismatch');
+      if(job.update_scope==='tags') {await this.verifyContent(this.frame,job);return;}
       await body.click();await this.page.keyboard.press('Control+A');await this.page.keyboard.press('Control+A');await this.page.keyboard.press('Backspace');
       await new Promise(r=>setTimeout(r,500));
       const left=(await this.frame.locator('.se-component:not(.se-documentTitle)').allInnerTexts()).join('').replace(/글감과 함께 나의 일상을 기록해보세요!/g,'');
@@ -222,9 +223,16 @@ class NaverAdapter {
     }
     // A second explicit Publish button is required; unknown layouts fail closed.
     if(job.tags?.length) {
-      const tag=this.page.getByPlaceholder('태그 입력');
+      const tag=this.frame.locator('#tag-input');
       if(await tag.count()!==1) throw Error('tag_field_not_calibrated');
-      for(const t of job.tags) { await tag.fill(t); await tag.press('Enter'); }
+      const area=tag.locator('xpath=ancestor::div[contains(@class,"tag_area")][1]');
+      const has=async t=>area.evaluate((e,t)=>[...e.querySelectorAll('span,a,button')].some(x=>(x.textContent||'').trim().replace(/^#/,'')===t),t);
+      for(const t of [...new Set(job.tags)]) {
+        if(await has(t))continue;
+        await tag.fill(t);await tag.press('Enter');
+        let verified=false;for(let n=0;n<30;n++){if(await has(t)){verified=true;break;}await new Promise(r=>setTimeout(r,100));}
+        if(!verified)throw Error('tag_chip_not_verified:'+t);
+      }
     }
     // Confirm public visibility rather than inheriting a previous private setting.
     let selected=false;
@@ -256,7 +264,12 @@ class NaverAdapter {
       for(const f of this.page.frames()) if(await f.locator('.se-main-container').count()===1) {
         if(!(await f.locator('body').innerText()).includes(job.title)) throw Error('published_title_missing');
         if(job.category && !norm(await f.locator('body').innerText()).includes(norm('이 블로그 '+job.category+' 카테고리 글')))throw Error('published_category_not_verified');
-        await this.verifyContent(f,job,true); return url;
+        await this.verifyContent(f,job,true);
+        if(job.tags?.length) {
+          const anchors=await f.locator('a').evaluateAll(es=>es.map(e=>({text:e.innerText,href:e.getAttribute('href'),class:e.className})));
+          require('./tags').assertTags(job.tags,require('./tags').publishedTags(anchors));
+        }
+        return url;
       }
       await new Promise(r=>setTimeout(r,250));
     }
