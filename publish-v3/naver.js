@@ -163,12 +163,13 @@ class NaverAdapter {
     if(!publishedURL(url))throw Error('invalid_target');
     this.browser=await require('./cdp').connect(this.chromium,this.endpoint);this.page=await this.browser.contexts()[0].newPage();
     await this.page.goto(url,{waitUntil:'domcontentloaded'});let post;
-    for(let n=0;n<40&&!post;n++){for(const f of this.page.frames())if(await f.locator('.se-main-container').count()===1){post=f;break;}if(!post)await new Promise(r=>setTimeout(r,250));}
+    for(let n=0;n<40&&!post;n++){for(const f of this.page.frames()){try{if(await f.locator('.se-main-container').count()===1){post=f;break;}}catch(e){if(!f.isDetached())throw e;}}if(!post)await new Promise(r=>setTimeout(r,250));}
     if(!post||!(await post.locator('body').innerText()).includes(expectedTitle))throw Error('original_not_verified');
     let edit=post.getByRole('link',{name:'수정',exact:true});if(!await edit.count())edit=post.getByRole('button',{name:'수정',exact:true});if(await edit.count()!==1)throw Error('edit_missing');await edit.click();
-    this.frame=await this.locateEditor();const title=this.frame.locator('.se-documentTitle .se-title-text');if(norm(await title.innerText())!==norm(expectedTitle))throw Error('editor_title_mismatch:'+String(await title.innerText()).slice(0,100));
+    for(let n=0;n<100&&!this.frame;n++){for(const f of this.page.frames()){try{if(/postupdate/i.test(f.url())&&await f.locator('.se-documentTitle .se-title-text').count()===1){this.frame=f;break;}}catch(e){if(!f.isDetached())throw e;}}if(!this.frame)await new Promise(r=>setTimeout(r,250));}
+    if(!this.frame)throw Error('update_frame_not_ready');const title=this.frame.locator('.se-documentTitle .se-title-text');if(norm(await title.innerText())!==norm(expectedTitle))throw Error('editor_title_mismatch:'+String(await title.innerText()).slice(0,100));
     await (await this.button('발행')).click();
-    const frames=[];for(const f of this.page.frames())frames.push({url:f.url(),inputs:await f.locator('input').evaluateAll(es=>es.map(e=>({placeholder:e.placeholder,aria:e.getAttribute('aria-label'),type:e.type,class:e.className}))),tagMarkup:await f.locator('input').evaluateAll(es=>es.filter(e=>/태그|tag/i.test(e.outerHTML)).map(e=>e.parentElement.parentElement.outerHTML.slice(0,10000)))});
+    const frames=[];for(const f of this.page.frames()){if(f.isDetached())continue;try{frames.push({url:f.url(),inputs:await f.locator('input').evaluateAll(es=>es.map(e=>({placeholder:e.placeholder,aria:e.getAttribute('aria-label'),type:e.type,class:e.className}))),tagMarkup:await f.locator('input').evaluateAll(es=>es.filter(e=>/태그|tag/i.test(e.outerHTML)).map(e=>e.parentElement.parentElement.outerHTML.slice(0,10000)))});}catch(e){if(!f.isDetached())throw e;}}
     return {frames,changed:false,published:false};
   }
   async verifyContent(frame,job,published=false) {
