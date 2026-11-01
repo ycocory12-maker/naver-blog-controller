@@ -38,3 +38,14 @@ test('generation retries are bounded and malformed public legal appendices canno
     const bad=job(38);bad.blocks.push({type:'paragraph',runs:[{text:'확인한 법령과 적용 기준'}]});assert.throws(()=>s.ready(38,bad),/legal_appendix/);
   }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });
+test('editorial replacement requires a paused unchanged READY record and retains a backup',()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'naver-replace-'));try {
+    const {fingerprint}=require('./core'),s=new Scheduler(dir,new Store(path.join(dir,'jobs')));
+    const original=job(38);original.content_id=38;s.ready(38,original);const old=s.item(38).job,changed=structuredClone(old);changed.blocks[0].file='new-cover.png';
+    assert.throws(()=>s.replaceReady(38,changed,'wrong'),/changed/);
+    s.configure({enabled:true,starts_at:'2026-11-01T08:00:00+09:00'});assert.throws(()=>s.replaceReady(38,changed,fingerprint(old)),/pause/);
+    s.configure({enabled:false,starts_at:'2026-11-01T08:00:00+09:00'});assert.equal(s.replaceReady(38,changed,fingerprint(old)).status,'READY');
+    assert.equal(s.item(38).job.blocks[0].file,'new-cover.png');assert.ok(fs.readdirSync(path.join(dir,'schedule')).some(n=>n.startsWith('backup-38-')));
+    const state=s.state();state.items[0].status='PUBLISHED';s.save(state);assert.throws(()=>s.replaceReady(38,changed,fingerprint(changed)),/unpublished/);
+  }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});

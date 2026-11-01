@@ -22,6 +22,18 @@ class Scheduler {
     const s=this.state();return {...s,items:s.items.map(({content_id,job_id,title,status,url,error,generated_at})=>({content_id,job_id,title,status,url,error,generated_at})),generation_connected:!!this.generate};
   }
   item(id){return this.db.get('article-'+String(id).padStart(3,'0'));}
+  replaceReady(contentId,job,expectedHash,audit) {
+    const s=this.state(),entry=s.items.find(i=>i.content_id===contentId),old=this.item(contentId);
+    if(s.enabled)throw Error('pause_schedule_before_replacing');
+    if(entry?.status!=='READY'||!old)throw Error('only_unpublished_ready_article_can_be_replaced');
+    const {fingerprint}=require('./core');if(fingerprint(old.job)!==expectedHash)throw Error('queued_article_changed');
+    job=validate(enrich(job,'v89'));require('./marketing').validateMarketing(job);
+    if(job.id!==old.job.id||job.content_id!==contentId||job.title!==old.job.title||job.action==='update')throw Error('queued_identity_must_be_preserved');
+    if(this.jobs.get(job.id))throw Error('publication_already_started');
+    this.db.put({...old,id:'backup-'+contentId+'-'+Date.now()});
+    const revision={...old,job,audit:audit||old.audit,replaced_at:new Date(this.clock()).toISOString()};this.db.put(revision);
+    entry.replaced_at=revision.replaced_at;this.save(s);return {content_id:contentId,status:entry.status,hash:fingerprint(job)};
+  }
   ready(contentId,job,audit={}) {
     const s=this.state();if(!Number.isInteger(contentId)||contentId<=s.completed_through)throw Error('already_published_content_number');
     job=validate(enrich(job,'v89'));require('./marketing').validateMarketing(job);
@@ -60,11 +72,14 @@ class Scheduler {
     }
     if(changed)this.save(s);
   }
-  async publishDue() {
+  async publishDue({catchUp=false}={}) {
     const now=this.clock(),t=localTime(now);let s=this.state();
     if(!s.enabled)return {status:'DISABLED'};
     if(new Date(now)<new Date(s.starts_at))return {status:'NOT_STARTED'};
-    if(!HOURS.includes(t.hour)||t.minute>20)return {status:'OUTSIDE_SLOT'};
+    if(catchUp) {
+      const missed=HOURS.find(h=>h<=t.hour&&!s.slots.some(x=>x.key===t.day+'T'+String(h).padStart(2,'0')));
+      if(missed===undefined)return {status:'NO_MISSED_SLOT'};t.hour=missed;
+    } else if(!HOURS.includes(t.hour)||t.minute>20)return {status:'OUTSIDE_SLOT'};
     const key=t.day+'T'+String(t.hour).padStart(2,'0');
     if(s.slots.some(x=>x.key===key))return {status:'SLOT_ALREADY_RESERVED'};
     if(s.slots.filter(x=>x.day===t.day).length>=4)return {status:'DAILY_LIMIT'};

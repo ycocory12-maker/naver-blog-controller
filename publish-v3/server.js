@@ -24,15 +24,15 @@ function start(env=process.env,options={}) {
       if(req.method==='GET' && req.url==='/scheduler')return send(200,scheduler.summary());
       const article=req.url.match(/^\/scheduler\/items\/(\d{3,})$/);
       if(req.method==='GET'&&article){const data=scheduler.item(Number(article[1]));return send(data?200:404,data||{error:'not_found'});}
-      if(req.method!=='POST'||!['/scheduler/config','/scheduler/queue','/scheduler/run','/scheduler/fill','/scheduler/render'].includes(req.url))return send(404,{error:'not_found'});
+      if(req.method!=='POST'||!['/scheduler/config','/scheduler/queue','/scheduler/replace','/scheduler/run','/scheduler/catch-up','/scheduler/fill','/scheduler/render'].includes(req.url))return send(404,{error:'not_found'});
       if(busy)return send(409,{error:'worker_busy'});busy=true;
       try {
-        if(['/scheduler/run','/scheduler/fill'].includes(req.url)) {
+        if(['/scheduler/run','/scheduler/catch-up','/scheduler/fill'].includes(req.url)) {
           if(req.url==='/scheduler/fill') {
             send(202,{status:'GENERATION_ACCEPTED'});await scheduler.fillOne();
           }else {
             if(!scheduler.state().enabled)return send(200,{status:'DISABLED'});
-            const publication=await scheduler.publishDue(),generation=await scheduler.fillOne();send(200,{publication,generation});
+            const publication=await scheduler.publishDue({catchUp:req.url==='/scheduler/catch-up'}),generation=await scheduler.fillOne();send(200,{publication,generation});
           }
         } else {
           let size=0,chunks=[];for await(const c of req){size+=c.length;if(size>1024*1024)throw Error('payload_too_large');chunks.push(c);}
@@ -45,7 +45,8 @@ function start(env=process.env,options={}) {
           else {
             const job=validate(require('./content-policy').enrich(body.job,'v89'));
             for(const image of job.blocks.filter(b=>b.type==='image'))if(!fs.existsSync(path.join(assets,image.file)))throw Error('asset_missing:'+image.file);
-            scheduler.ready(body.content_id,job,body.audit);send(200,{status:'READY',content_id:body.content_id,job_id:job.id});
+            if(req.url==='/scheduler/replace')send(200,scheduler.replaceReady(body.content_id,job,body.expected_hash,body.audit));
+            else {scheduler.ready(body.content_id,job,body.audit);send(200,{status:'READY',content_id:body.content_id,job_id:job.id});}
           }
         }
       }catch(e){if(!res.writableEnded)send(400,{error:String(e.message).slice(0,240)});else console.error(JSON.stringify({event:'generation_failed',error:String(e.message).slice(0,240)}));}
