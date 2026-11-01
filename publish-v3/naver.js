@@ -166,7 +166,7 @@ class NaverAdapter {
     for(let n=0;n<40&&!post;n++){for(const f of this.page.frames())if(await f.locator('.se-main-container').count()===1){post=f;break;}if(!post)await new Promise(r=>setTimeout(r,250));}
     if(!post||!(await post.locator('body').innerText()).includes(expectedTitle))throw Error('original_not_verified');
     let edit=post.getByRole('link',{name:'수정',exact:true});if(!await edit.count())edit=post.getByRole('button',{name:'수정',exact:true});if(await edit.count()!==1)throw Error('edit_missing');await edit.click();
-    this.frame=await this.locateEditor();if(norm(await this.frame.locator('.se-documentTitle').innerText())!==norm(expectedTitle))throw Error('editor_title_mismatch');
+    this.frame=await this.locateEditor();const title=this.frame.locator('.se-documentTitle .se-title-text');if(norm(await title.innerText())!==norm(expectedTitle))throw Error('editor_title_mismatch:'+String(await title.innerText()).slice(0,100));
     await (await this.button('발행')).click();
     const frames=[];for(const f of this.page.frames())frames.push({url:f.url(),inputs:await f.locator('input').evaluateAll(es=>es.map(e=>({placeholder:e.placeholder,aria:e.getAttribute('aria-label'),type:e.type,class:e.className}))),tagMarkup:await f.locator('input').evaluateAll(es=>es.filter(e=>/태그|tag/i.test(e.outerHTML)).map(e=>e.parentElement.parentElement.outerHTML.slice(0,10000)))});
     return {frames,changed:false,published:false};
