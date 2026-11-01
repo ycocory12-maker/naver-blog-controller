@@ -20,6 +20,11 @@ function start(env=process.env,options={}) {
     if(req.method==='GET' && req.url==='/health') return send(200,{ok:true,busy,version:'3.2.0',commit:env.RAILWAY_GIT_COMMIT_SHA || null});
     const incoming=Buffer.from(req.headers.authorization || ''), expected=Buffer.from('Bearer '+env.API_TOKEN);
     if(incoming.length!==expected.length || !crypto.timingSafeEqual(incoming,expected)) return send(401,{error:'unauthorized'});
+    if(req.method==='POST'&&req.url==='/tag-controls') {
+      if(busy)return send(409,{error:'worker_busy'});busy=true;let adapter;
+      try{let size=0,chunks=[];for await(const c of req){size+=c.length;if(size>4096)throw Error('payload_too_large');chunks.push(c);}const data=JSON.parse(Buffer.concat(chunks).toString('utf8'));if(typeof data.expected_title!=='string'||!data.expected_title)throw Error('expected_title_required');adapter=adapterFactory();send(200,await adapter.inspectTagControls(data.url,data.expected_title));}
+      catch(e){send(400,{error:e.message});}finally{try{await adapter?.close();}finally{busy=false;}}return;
+    }
     if(req.url.startsWith('/scheduler')) {
       if(req.method==='GET' && req.url==='/scheduler')return send(200,scheduler.summary());
       const article=req.url.match(/^\/scheduler\/items\/(\d{3,})$/);
