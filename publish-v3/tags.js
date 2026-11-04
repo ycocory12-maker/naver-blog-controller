@@ -8,4 +8,14 @@ function publishedTags(anchors) {
   return [...new Set(found)];
 }
 function assertTags(expected,actual) {for(const t of expected||[])if(!actual.includes(t))throw Error('published_tag_missing:'+t);}
-module.exports={publishedTags,assertTags};
+async function waitForTags(read,expected,{timeout=15000,interval=250,clock=Date.now,sleep=ms=>new Promise(r=>setTimeout(r,ms))}={}) {
+  const deadline=clock()+timeout;
+  for(;;) {
+    const actual=publishedTags(await read());
+    try{assertTags(expected,actual);return actual;}
+    catch(error){if(clock()>=deadline)throw error;}
+    await sleep(interval);
+  }
+}
+module.exports={publishedTags,assertTags,waitForTags};
+

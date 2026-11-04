@@ -273,14 +273,19 @@ class NaverAdapter {
         if(job.category && !norm(await f.locator('body').innerText()).includes(norm('이 블로그 '+job.category+' 카테고리 글')))throw Error('published_category_not_verified');
         await this.verifyContent(f,job,true);
         if(job.tags?.length) {
-          const anchors=await f.locator('a').evaluateAll(es=>es.map(e=>({text:e.innerText,href:e.getAttribute('href'),class:e.className})));
-          require('./tags').assertTags(job.tags,require('./tags').publishedTags(anchors));
+          // Post content arrives before the asynchronous tag list. Poll the real
+          // published links instead of treating the initial empty list as loss.
+          await require('./tags').waitForTags(()=>f.locator('a').evaluateAll(es=>es.map(e=>({text:e.innerText,href:e.getAttribute('href'),class:e.className}))),job.tags);
         }
         return url;
       }
       await new Promise(r=>setTimeout(r,250));
     }
     throw Error('published_content_not_verified');
+  }
+  async publicationURL() {
+    if(!this.page)return null;
+    return publishedURL(this.page.url()) || this.page.frames().map(f=>publishedURL(f.url())).find(Boolean) || null;
   }
   async close() {
     // This tab was created by this worker; leave all pre-existing user tabs untouched.

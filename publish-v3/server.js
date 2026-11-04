@@ -29,7 +29,7 @@ function start(env=process.env,options={}) {
       if(req.method==='GET' && req.url==='/scheduler')return send(200,scheduler.summary());
       const article=req.url.match(/^\/scheduler\/items\/(\d{3,})$/);
       if(req.method==='GET'&&article){const data=scheduler.item(Number(article[1]));return send(data?200:404,data||{error:'not_found'});}
-      if(req.method!=='POST'||!['/scheduler/config','/scheduler/queue','/scheduler/replace','/scheduler/run','/scheduler/catch-up','/scheduler/fill','/scheduler/render'].includes(req.url))return send(404,{error:'not_found'});
+      if(req.method!=='POST'||!['/scheduler/config','/scheduler/queue','/scheduler/replace','/scheduler/run','/scheduler/catch-up','/scheduler/fill','/scheduler/render','/scheduler/reconcile'].includes(req.url))return send(404,{error:'not_found'});
       if(busy)return send(409,{error:'worker_busy'});busy=true;
       try {
         if(['/scheduler/run','/scheduler/catch-up','/scheduler/fill'].includes(req.url)) {
@@ -42,7 +42,8 @@ function start(env=process.env,options={}) {
         } else {
           let size=0,chunks=[];for await(const c of req){size+=c.length;if(size>1024*1024)throw Error('payload_too_large');chunks.push(c);}
           const body=JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          if(req.url==='/scheduler/config')send(200,scheduler.configure(body));
+          if(req.url==='/scheduler/reconcile')send(200,await require('./reconcile').reconcile(scheduler,body));
+          else if(req.url==='/scheduler/config')send(200,scheduler.configure(body));
           else if(req.url==='/scheduler/render') {
             if(!/^[a-zA-Z0-9_-]{1,70}$/.test(body.id||''))throw Error('invalid_diagram_id');
             send(200,{files:await require('./illustrations').renderDiagrams({endpoint:env.CDP_ENDPOINT,assets,id:body.id,slides:body.slides,chromium:require('playwright-core').chromium})});
@@ -146,3 +147,4 @@ function start(env=process.env,options={}) {
 }
 if(require.main===module) start();
 module.exports={start};
+

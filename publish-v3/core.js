@@ -89,8 +89,12 @@ async function execute(store, job, adapter) {
     record.url=url; save('PUBLISHED');
     return record;
   } catch(e) {
+    if(record && ['PUBLISHING','VERIFYING'].includes(record.status) && adapter.publicationURL) {
+      try {const candidate=publishedURL(await adapter.publicationURL());if(candidate)record.candidate_url=candidate;}catch(_){}
+    }
     if(record) { record.status=['PUBLISHING','VERIFYING'].includes(record.status)?'NEEDS_RECONCILIATION':'FAILED'; record.updated_at=new Date().toISOString();record.error=String(e.message).slice(0,500); if(adapter.diagnostics) record.diagnostics=await adapter.diagnostics().catch(()=>({unavailable:true})); store.put(record); }
     throw e;
   } finally { try { await adapter.close?.(); } finally { unlock(); } }
 }
 module.exports={BLOG,escape,validate,renderBlock,fingerprint,publishedURL,Store,execute};
+
