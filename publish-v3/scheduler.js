@@ -14,9 +14,10 @@ class Scheduler {
   }
   state(){return this.db.get('state');}
   save(s){s.updated_at=new Date(this.clock()).toISOString();this.db.put(s);return s;}
-  configure({enabled,starts_at}) {
+  configure({enabled,starts_at,hours}) {
     if(typeof enabled!=='boolean' || !Number.isFinite(Date.parse(starts_at)))throw Error('invalid_schedule_config');
-    const s=this.state();s.enabled=enabled;s.starts_at=new Date(starts_at).toISOString();return this.save(s);
+    if(hours!==undefined && (!Array.isArray(hours)||hours.length<1||hours.length>4||hours.some(h=>!Number.isInteger(h)||h<0||h>23)||new Set(hours).size!==hours.length))throw Error('invalid_schedule_hours');
+    const s=this.state();s.enabled=enabled;s.starts_at=new Date(starts_at).toISOString();if(hours)s.hours=[...hours].sort((a,b)=>a-b);return this.save(s);
   }
   summary() {
     const s=this.state();return {...s,items:s.items.map(({content_id,job_id,title,status,url,error,generated_at})=>({content_id,job_id,title,status,url,error,generated_at})),generation_connected:!!this.generate};
@@ -73,16 +74,16 @@ class Scheduler {
     if(changed)this.save(s);
   }
   async publishDue({catchUp=false}={}) {
-    const now=this.clock(),t=localTime(now);let s=this.state();
+    const now=this.clock(),t=localTime(now);let s=this.state();const hours=s.hours||HOURS;
     if(!s.enabled)return {status:'DISABLED'};
     if(new Date(now)<new Date(s.starts_at))return {status:'NOT_STARTED'};
     if(catchUp) {
-      const missed=HOURS.find(h=>h<=t.hour&&!s.slots.some(x=>x.key===t.day+'T'+String(h).padStart(2,'0')));
+      const missed=hours.find(h=>h<=t.hour&&!s.slots.some(x=>x.key===t.day+'T'+String(h).padStart(2,'0')));
       if(missed===undefined)return {status:'NO_MISSED_SLOT'};t.hour=missed;
-    } else if(!HOURS.includes(t.hour)||t.minute>20)return {status:'OUTSIDE_SLOT'};
+    } else if(!hours.includes(t.hour)||t.minute>20)return {status:'OUTSIDE_SLOT'};
     const key=t.day+'T'+String(t.hour).padStart(2,'0');
     if(s.slots.some(x=>x.key===key))return {status:'SLOT_ALREADY_RESERVED'};
-    if(s.slots.filter(x=>x.day===t.day).length>=4)return {status:'DAILY_LIMIT'};
+    if(s.slots.filter(x=>x.day===t.day).length>=hours.length)return {status:'DAILY_LIMIT'};
     const next=s.items.filter(i=>i.status!=='PUBLISHED').sort((a,b)=>a.content_id-b.content_id)[0];
     if(!next||next.status!=='READY')return {status:next?'WAITING_FOR_RECONCILIATION':'NO_READY_ARTICLE'};
     if(next.content_id!==s.completed_through+1+s.items.filter(i=>i.status==='PUBLISHED').length)return {status:'MISSING_PREVIOUS_CONTENT_NUMBER'};
