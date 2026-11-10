@@ -6,6 +6,8 @@ const routes=[
   {name:'사업자',number:10,test:/사업자|쇼핑몰|스마트스토어|쿠팡|변호사|법률사무소|프리랜서|유튜버|크리에이터|인터넷방송|애드센스|협찬|원천징수/}
 ];
 function categoryFor(job) {
+  const explicit={clinic:{name:'병·의원',number:11},corporate:{name:'법인',number:12},property:{name:'양도·상속·증여',number:13},online:{name:'사업자',number:10},freelancer:{name:'사업자',number:10},creator:{name:'사업자',number:10},lawyer:{name:'사업자',number:10},business:{name:'사업자',number:10}};
+  if(explicit[job.industry])return explicit[job.industry];
   const topic=[job.industry || '',job.topic || '',job.title || ''].join(' ');
   return routes.find(r=>r.test.test(topic)) || {name:'세무사',number:8};
 }
