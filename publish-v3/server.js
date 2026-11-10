@@ -25,6 +25,17 @@ function start(env=process.env,options={}) {
       try{let size=0,chunks=[];for await(const c of req){size+=c.length;if(size>4096)throw Error('payload_too_large');chunks.push(c);}const data=JSON.parse(Buffer.concat(chunks).toString('utf8'));if(typeof data.expected_title!=='string'||!data.expected_title)throw Error('expected_title_required');adapter=adapterFactory();send(200,await adapter.inspectTagControls(data.url,data.expected_title));}
       catch(e){send(400,{error:e.message});}finally{try{await adapter?.close();}finally{busy=false;}}return;
     }
+    if(req.url==='/maintenance/storage'||req.url==='/maintenance/cleanup') {
+      if(busy)return send(409,{error:'worker_busy'});busy=true;
+      const context={dataDir:env.DATA_DIR,assets,jobs:store,scheduler};
+      try {
+        const maintenance=require('./maintenance');
+        if(req.method==='GET'&&req.url==='/maintenance/storage')return send(200,maintenance.inventory(context));
+        if(req.method!=='POST'||req.url!=='/maintenance/cleanup')return send(404,{error:'not_found'});
+        let size=0,chunks=[];for await(const c of req){size+=c.length;if(size>256*1024)throw Error('payload_too_large');chunks.push(c);}
+        return send(200,maintenance.cleanup(context,JSON.parse(Buffer.concat(chunks).toString('utf8'))));
+      }catch(e){send(400,{error:String(e.message).slice(0,240)});}finally{busy=false;}return;
+    }
     if(req.url.startsWith('/scheduler')) {
       if(req.method==='GET' && req.url==='/scheduler')return send(200,scheduler.summary());
       const article=req.url.match(/^\/scheduler\/items\/(\d{3,})$/);
