@@ -20,6 +20,20 @@ function start(env=process.env,options={}) {
     if(req.method==='GET' && req.url==='/health') return send(200,{ok:true,busy,version:'3.2.0',commit:env.RAILWAY_GIT_COMMIT_SHA || null});
     const incoming=Buffer.from(req.headers.authorization || ''), expected=Buffer.from('Bearer '+env.API_TOKEN);
     if(incoming.length!==expected.length || !crypto.timingSafeEqual(incoming,expected)) return send(401,{error:'unauthorized'});
+    // Safety policy: public publication is opt-in and is disabled by default.
+    // This gate applies before any browser interaction or scheduler state mutation.
+    // Draft-only automation remains blocked until saveDraft + reopen verification is implemented.
+    const publicPublishAllowed = env.ALLOW_PUBLIC_PUBLISH === 'true';
+    const publicationRequest = req.method === 'POST' && (
+      req.url === '/scheduler/run' ||
+      req.url === '/scheduler/catch-up' ||
+      req.url === '/jobs' ||
+      /^\\/jobs\\/[a-zA-Z0-9_-]{1,80}\\/retry$/.test(req.url)
+    );
+    if(!publicPublishAllowed && publicationRequest) {
+      return send(423,{error:'public_publish_disabled_by_policy',draft_only:true,
+        note:'Draft saving is not yet implemented; no publication was attempted.'});
+    }
     if(req.method==='POST'&&req.url==='/tag-controls') {
       if(busy)return send(409,{error:'worker_busy'});busy=true;let adapter;
       try{let size=0,chunks=[];for await(const c of req){size+=c.length;if(size>4096)throw Error('payload_too_large');chunks.push(c);}const data=JSON.parse(Buffer.concat(chunks).toString('utf8'));if(typeof data.expected_title!=='string'||!data.expected_title)throw Error('expected_title_required');adapter=adapterFactory();send(200,await adapter.inspectTagControls(data.url,data.expected_title));}
