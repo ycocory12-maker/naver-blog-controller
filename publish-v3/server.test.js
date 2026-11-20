@@ -5,7 +5,7 @@ const {once}=require('node:events');const {start}=require('./server');
 test('HTTP authentication, PNG uploads, durable acceptance and duplicate protection',async()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'naver-api-'));let publishCount=0,release;
   const gate=new Promise(r=>release=r);
-  const server=start({DATA_DIR:dir,API_TOKEN:'a'.repeat(40),CDP_ENDPOINT:'unused',PORT:'0'},{host:'127.0.0.1',adapterFactory:()=>({prepare:async()=>gate,verifyEditor:async()=>{},publish:async()=>{publishCount++;},verifyPublished:async()=> 'https://blog.naver.com/tlsehdduq0152/123',close:async()=>{}})});
+  const server=start({ALLOW_PUBLIC_PUBLISH:'true',DATA_DIR:dir,API_TOKEN:'a'.repeat(40),CDP_ENDPOINT:'unused',PORT:'0'},{host:'127.0.0.1',adapterFactory:()=>({prepare:async()=>gate,verifyEditor:async()=>{},publish:async()=>{publishCount++;},verifyPublished:async()=> 'https://blog.naver.com/tlsehdduq0152/123',close:async()=>{}})});
   await once(server,'listening');const url='http://127.0.0.1:'+server.address().port,headers={authorization:'Bearer '+'a'.repeat(40)};
   try {
     assert.equal((await fetch(url+'/health')).status,200);
@@ -40,7 +40,7 @@ test('HTTP authentication, PNG uploads, durable acceptance and duplicate protect
 });
 test('production profile adds topic category and footer and blocks thin jobs before browser input',async()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'naver-profile-'));let received;
-  const server=start({DATA_DIR:dir,API_TOKEN:'b'.repeat(40),CDP_ENDPOINT:'unused',PORT:'0',CONTENT_PROFILE:'v89'},{host:'127.0.0.1',adapterFactory:()=>({prepare:async job=>{received=job;},verifyEditor:async()=>{},publish:async()=>{},verifyPublished:async()=> 'https://blog.naver.com/tlsehdduq0152/456',close:async()=>{}})});
+  const server=start({ALLOW_PUBLIC_PUBLISH:'true',DATA_DIR:dir,API_TOKEN:'b'.repeat(40),CDP_ENDPOINT:'unused',PORT:'0',CONTENT_PROFILE:'v89'},{host:'127.0.0.1',adapterFactory:()=>({prepare:async job=>{received=job;},verifyEditor:async()=>{},publish:async()=>{},verifyPublished:async()=> 'https://blog.naver.com/tlsehdduq0152/456',close:async()=>{}})});
   await once(server,'listening');const url='http://127.0.0.1:'+server.address().port,headers={authorization:'Bearer '+'b'.repeat(40)};
   try {
     const base={id:'thin',blog:'tlsehdduq0152',mode:'publish',title:'병원 개원 세무',blocks:[{type:'paragraph',runs:[{text:'짧은 원고'}]}]};
@@ -51,5 +51,24 @@ test('production profile adds topic category and footer and blocks thin jobs bef
     assert.equal(received.category,'병·의원');assert.equal(received.category_no,11);assert.equal(received.blocks.at(-1).file,'office_contact.jpeg');assert.equal(received.blocks.filter(b=>b.type==='image').length,7);
     for(let i=0;i<100;i++){const r=await(await fetch(url+'/jobs/full',{headers})).json();if(r.status==='PUBLISHED')break;await new Promise(r=>setTimeout(r,5));}
     assert.equal((await fetch(url+'/jobs',{method:'POST',headers,body:JSON.stringify(payload)})).status,200);
+  }finally{await new Promise(r=>server.close(r));fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('public publication is blocked by default before browser input',async()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'naver-policy-'));let adapterCalls=0;
+  const server=start({DATA_DIR:dir,API_TOKEN:'c'.repeat(40),CDP_ENDPOINT:'unused',PORT:'0'},
+    {host:'127.0.0.1',adapterFactory:()=>{adapterCalls++;throw Error('browser_must_not_start');}});
+  await once(server,'listening');
+  const url='http://127.0.0.1:'+server.address().port,headers={authorization:'Bearer '+'c'.repeat(40)};
+  try{
+    const job={id:'001',blog:'tlsehdduq0152',mode:'publish',title:'안전 검사',blocks:[{type:'paragraph',runs:[{text:'내용'}]}]};
+    for(const route of ['/scheduler/run','/scheduler/catch-up','/jobs','/jobs/001/retry']){
+      const response=await fetch(url+route,{method:'POST',headers,body:JSON.stringify(job)});
+      assert.equal(response.status,423,route);
+      assert.equal((await response.json()).error,'public_publish_disabled_by_policy');
+    }
+    assert.equal(adapterCalls,0);
+    assert.equal((await fetch(url+'/scheduler',{headers})).status,200);
+    assert.equal((await fetch(url+'/jobs/001',{headers})).status,404);
   }finally{await new Promise(r=>server.close(r));fs.rmSync(dir,{recursive:true,force:true});}
 });
